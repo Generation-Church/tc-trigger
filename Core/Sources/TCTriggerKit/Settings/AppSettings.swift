@@ -29,6 +29,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var feedbackTrigger: MIDITrigger?
     /// Verbose logging is on until this time (it turns itself off after 24 hours).
     public var verboseUntil: Date?
+    /// Also show a Dock icon (handy when the menu bar is too full to show TC Trigger's icon).
+    public var showInDock = true
 
     public static let verboseDuration: TimeInterval = 24 * 3600
 
@@ -48,7 +50,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case offsetMs, catchWindowFrames, armed, midiSourceUniqueID
         case controlInputID, controlInputName, controlMappings
         case feedbackDestinationID, feedbackDestinationName, feedbackTrigger
-        case verboseUntil
+        case verboseUntil, showInDock
     }
 
     public init(from decoder: Decoder) throws {
@@ -71,6 +73,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         feedbackDestinationName = try c.decodeIfPresent(String.self, forKey: .feedbackDestinationName)
         feedbackTrigger = try? c.decodeIfPresent(MIDITrigger.self, forKey: .feedbackTrigger)
         verboseUntil = try? c.decodeIfPresent(Date.self, forKey: .verboseUntil)
+        showInDock = try c.decodeIfPresent(Bool.self, forKey: .showInDock) ?? d.showInDock
     }
 }
 

@@ -27,11 +27,14 @@ struct TCTriggerApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Runs unattended: only show the window at launch until the campus name is set.
-        let needsSetup = AppModel.shared.settings.campusName.isEmpty
+        let model = AppModel.shared
+        model.applyDockSetting()
+        // Opened by a person → show the window. Started by macOS at login → stay in the
+        // background (the Mac runs unattended), unless setup isn't finished.
+        let showWindow = !Self.launchedAtLogin || model.settings.campusName.isEmpty
         DispatchQueue.main.async {
             for window in NSApp.windows where window.identifier?.rawValue == MainWindow.id {
-                if needsSetup {
+                if showWindow {
                     window.makeKeyAndOrderFront(nil)
                     NSApp.activate(ignoringOtherApps: true)
                 } else {
@@ -39,6 +42,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    /// True when macOS opened the app as a login item.
+    static var launchedAtLogin: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventID == AEEventID(kAEOpenApplication) else { return false }
+        return event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

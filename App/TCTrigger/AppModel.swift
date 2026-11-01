@@ -202,6 +202,16 @@ final class AppModel: ObservableObject {
         launchAtLogin = Reliability.launchAtLoginEnabled
     }
 
+    func setShowInDock(_ on: Bool) {
+        updateSettings { $0.showInDock = on }
+        applyDockSetting()
+    }
+
+    func applyDockSetting() {
+        NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
+        if settings.showInDock { NSApp.activate(ignoringOtherApps: false) }
+    }
+
     func startCalibration(clickChannel: Int) { engine.setCalibration(clickChannel: clickChannel) }
 
     func stopCalibration() { engine.setCalibration(clickChannel: nil) }

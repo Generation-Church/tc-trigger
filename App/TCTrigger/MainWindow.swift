@@ -139,6 +139,10 @@ struct SettingsTab: View {
             Section("Startup") {
                 Toggle("Launch TC Trigger at login", isOn: Binding(get: { model.launchAtLogin },
                                                                    set: { model.setLaunchAtLogin($0) }))
+                Toggle("Show in Dock", isOn: Binding(get: { model.settings.showInDock },
+                                                     set: { model.setShowInDock($0) }))
+                Text("The Dock icon opens this window. Useful when the menu bar is too full to show TC Trigger's icon.")
+                    .font(.caption).foregroundStyle(.secondary)
                 if let msg = model.launchAtLoginMessage {
                     Text(msg).font(.caption).foregroundStyle(.orange)
                 }

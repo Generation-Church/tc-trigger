@@ -35,9 +35,9 @@ This produces `build/TC Trigger.app`. Open it with:
 open "build/TC Trigger.app"
 ```
 
-If you can't see the menu-bar icon (on a MacBook with a notch it can hide behind the notch when
-the menu bar is full), double-click TC Trigger in Applications again and the main window opens.
-You can also hold ⌘ and drag other menu-bar icons around to make room.
+TC Trigger has a Dock icon (you can turn it off in Settings → Startup) and an icon in the menu bar.
+On a MacBook with a notch, the menu-bar icon can hide behind the notch when the menu bar is full.
+Click the Dock icon, or double-click TC Trigger in Applications, to open the main window.
 
 The app lives in the menu bar (a waveform icon: gray = no lock, blue = locked). Click it, then
 **Open TC Trigger…** for the main window. On first launch, macOS asks for audio input
