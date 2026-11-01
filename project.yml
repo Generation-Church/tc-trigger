@@ -1,0 +1,51 @@
+# XcodeGen recipe. scripts/build.sh turns this into "TC Trigger.xcodeproj" (not checked in).
+name: TC Trigger
+options:
+  bundleIdPrefix: church.generation
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+packages:
+  TCTriggerCore:
+    path: Core
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    ARCHS: arm64
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+targets:
+  TC Trigger:
+    type: application
+    platform: macOS
+    sources:
+      - App/TCTrigger
+    dependencies:
+      - package: TCTriggerCore
+        product: TCTriggerKit
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: TC Trigger
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+        LSMinimumSystemVersion: "14.0"
+        LSApplicationCategoryType: public.app-category.music
+        NSMicrophoneUsageDescription: TC Trigger listens to the LTC timecode channel on your audio interface.
+        NSHumanReadableCopyright: "© Generation Church. Uses libltc (LGPL-3.0)."
+    settings:
+      base:
+        PRODUCT_NAME: TC Trigger
+        PRODUCT_BUNDLE_IDENTIFIER: church.generation.tctrigger
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_APP_SANDBOX: NO
+        GENERATE_INFOPLIST_FILE: NO
+        COMBINE_HIDPI_IMAGES: YES
