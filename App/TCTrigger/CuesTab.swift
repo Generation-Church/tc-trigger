@@ -44,11 +44,11 @@ struct CuesTab: View {
                 TableColumn("Note") { cue in
                     HStack(spacing: 4) {
                         IntField(value: cue.note, range: 0...127) { var c = cue; c.note = $0; model.updateCue(c) }
-                        Text(Cue.noteName(cue.note)).foregroundStyle(.secondary).font(.caption)
-                            .frame(width: 30, alignment: .leading)
+                            .frame(width: 34)
+                        NoteNameMenu(note: cue.note) { var c = cue; c.note = $0; model.updateCue(c) }
                     }
                 }
-                .width(80)
+                .width(104)
                 TableColumn("Ch") { cue in
                     IntField(value: cue.channel, range: 1...16) { var c = cue; c.channel = $0; model.updateCue(c) }
                 }
@@ -153,6 +153,38 @@ struct CuesTab: View {
             alertMessage = "Couldn't export: \(error.localizedDescription)"
         }
     }
+}
+
+/// The note name ("C3", "A#0") as a dropdown of all 128 MIDI notes, grouped by octave.
+/// Names follow Ableton (C3 = 60), so they match what Ableton shows when mapping.
+struct NoteNameMenu: View {
+    let note: Int
+    let select: (Int) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(Self.octaves, id: \.self) { octave in
+                let notes = Array(max(0, (octave + 2) * 12)...min(127, (octave + 2) * 12 + 11))
+                Menu("Octave \(octave)  (\(Cue.noteName(notes.first!))–\(Cue.noteName(notes.last!)))") {
+                    Picker("", selection: Binding(get: { note }, set: { select($0) })) {
+                        ForEach(notes, id: \.self) { n in
+                            Text("\(Cue.noteName(n))   (\(n))").tag(n)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+            }
+        } label: {
+            Text(Cue.noteName(note)).monospaced()
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Choose the note by name (C3 = MIDI note 60, as in Ableton)")
+    }
+
+    /// Ableton numbers octaves from −2 (notes 0–11) to 8 (notes 120–127).
+    static let octaves = Array(-2...8)
 }
 
 /// ▶ for the next cue, ⚠️ when something about the cue looks wrong (hover for details).
