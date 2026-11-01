@@ -33,6 +33,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var feedbackConnected = false
     private var learnSession = LearnSession()
     private var maintenanceTimer: Timer?
+    let reliability: Reliability
+    @Published private(set) var launchAtLogin = Reliability.launchAtLoginEnabled
+    @Published var launchAtLoginMessage: String?
     private var learnTimer: Timer?
 
     private var uiTimer: Timer?
@@ -57,6 +60,7 @@ final class AppModel: ObservableObject {
         midiStatus = midiSource != nil ? "Virtual MIDI source “TC Trigger” is available" : "MIDI source unavailable: \(midiError ?? "")"
         engine = LTCEngine(log: log, midi: midiSource)
         midiController = try? MIDIController(ownSourceName: "TC Trigger")
+        reliability = Reliability(log: log)
 
         log.info(.app, "app.launch", "TC Trigger \(SystemInfo.appVersion) started",
                  ["app_version": .string(SystemInfo.appVersion), "macos": .string(SystemInfo.macOSVersion),
@@ -85,6 +89,8 @@ final class AppModel: ObservableObject {
         engine.setCues(cues)
         engine.setTiming(offsetMs: initial.offsetMs, catchWindowFrames: initial.catchWindowFrames)
         engine.setArmed(initial.armed, source: "app launch")
+        reliability.disableAppNap()
+        reliability.setPreventSleep(initial.armed)
         setUpMIDIControl(initial)
         log.verbose = initial.isVerbose()
         if log.verbose, let until = initial.verboseUntil {
@@ -134,6 +140,7 @@ final class AppModel: ObservableObject {
     func setArmed(_ armed: Bool, source: String = "ui") {
         engine.setArmed(armed, source: source)
         settingsStore.update(source: source) { $0.armed = armed }
+        reliability.setPreventSleep(armed)
         sendFeedback(armed: armed)
     }
 
@@ -187,6 +194,22 @@ final class AppModel: ObservableObject {
     }
 
     func sendFeedbackTest() { sendFeedback(armed: settings.armed) }
+
+    // MARK: Reliability and calibration
+
+    func setLaunchAtLogin(_ on: Bool) {
+        launchAtLoginMessage = reliability.setLaunchAtLogin(on)
+        launchAtLogin = Reliability.launchAtLoginEnabled
+    }
+
+    func startCalibration(clickChannel: Int) { engine.setCalibration(clickChannel: clickChannel) }
+
+    func stopCalibration() { engine.setCalibration(clickChannel: nil) }
+
+    func applyCalibratedOffset(_ ms: Int) {
+        updateSettings { $0.offsetMs = ms }
+        log.info(.audio, "cal.applied", "Offset set to \(ms) ms from calibration", ["offset_ms": .int(ms)])
+    }
 
     // MARK: Logging
 

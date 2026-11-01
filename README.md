@@ -4,18 +4,30 @@ A small macOS menu-bar app that listens to LTC (SMPTE linear timecode) on an aud
 launches Ableton Live scenes over MIDI when it hears specific frames. It's built for Generation
 Church's satellite campuses, where the LTC arrives over Resi alongside the streamed singer.
 
-**Status:** Milestone 5 of 6. It locks to LTC, fires cues as scheduled MIDI notes through its
-own virtual MIDI source "TC Trigger", and logs every fire, near-miss and miss. See
-[docs/DESIGN.md](docs/DESIGN.md) for how it works.
+**Version 1.0.0.** It locks to LTC, fires cues as scheduled MIDI notes through its own virtual
+MIDI source "TC Trigger", and logs every fire and miss. It can be armed and controlled from a MIDI
+controller, and it runs unattended. See [docs/DESIGN.md](docs/DESIGN.md) for how it works.
 
 Requirements: Apple Silicon Mac, macOS 14 or later. Building needs Xcode and XcodeGen
 (`brew install xcodegen`).
 
-## Build
+## Build (on your Mac)
+
+**One time only**, create the signing certificate. This keeps campus Macs from re-asking for
+audio permission after every update:
+
+```bash
+./scripts/make-signing-cert.sh
+```
+
+Then build:
 
 ```bash
 ./scripts/build.sh
 ```
+
+The first build after creating the certificate may ask to let `codesign` use the key. Click
+**Always Allow**.
 
 This produces `build/TC Trigger.app`. Open it with:
 
@@ -23,9 +35,51 @@ This produces `build/TC Trigger.app`. Open it with:
 open "build/TC Trigger.app"
 ```
 
+If you can't see the menu-bar icon (on a MacBook with a notch it can hide behind the notch when
+the menu bar is full), double-click TC Trigger in Applications again and the main window opens.
+You can also hold ⌘ and drag other menu-bar icons around to make room.
+
 The app lives in the menu bar (a waveform icon: gray = no lock, blue = locked). Click it, then
 **Open TC Trigger…** for the main window. On first launch, macOS asks for audio input
 ("microphone") access. Click **Allow**, because that's how the app hears the LTC channel.
+
+## Install on a campus Mac
+
+1. On your Mac, make the install zip:
+
+   ```bash
+   ./scripts/package.sh
+   ```
+
+   This creates `dist/TC-Trigger-<version>.zip` and shows it in Finder.
+2. Get the zip onto the campus Mac (USB stick, AirDrop, Google Drive…) and double-click it to
+   unzip.
+3. Drag **TC Trigger** into the **Applications** folder. If it's an update, quit TC Trigger
+   first and replace the old one.
+4. **Get past Gatekeeper** (TC Trigger isn't notarized by Apple, so macOS blocks the first launch).
+   Do one of these:
+   - **System Settings way:** double-click TC Trigger. When macOS says it can't be opened, click
+     **Done**. Open **System Settings → Privacy & Security**, scroll down to *"TC Trigger" was
+     blocked…* and click **Open Anyway**, then enter the Mac's password and click **Open**.
+   - **Terminal way:** paste this into Terminal and press Return, then open TC Trigger normally:
+
+     ```bash
+     xattr -dr com.apple.quarantine "/Applications/TC Trigger.app"
+     ```
+
+   (Right-click → Open no longer works for this on current macOS.) You only need to do this
+   once per downloaded copy.
+5. When asked, click **Allow** so TC Trigger can use audio input (that's how it hears the LTC).
+   If you clicked Don't Allow: **System Settings → Privacy & Security → Microphone**, turn on TC
+   Trigger, then quit and reopen it.
+6. Click the menu-bar icon → **Open TC Trigger…** and in **Settings**:
+   - type the **campus name**
+   - choose the **audio interface and LTC input channel**
+   - turn on **Launch TC Trigger at login**
+   - set up the MIDI controller, if you use one
+7. In **Cues**, click **Import…** and load the cue list you exported.
+8. Set up Ableton (below), then **measure the offset**:
+   [docs/LOOPBACK_TEST.md](docs/LOOPBACK_TEST.md).
 
 ## Set up Ableton
 
@@ -69,6 +123,20 @@ Cue warnings (⚠️ in the list, hover for details) flag:
 - two cues sending the same note and channel
 - a timecode that can't exist at the detected frame rate
 - a cue with no name
+
+## Weekend checklist
+
+- [ ] Menu-bar icon visible. **Blue** means locked to LTC, **green** means armed.
+- [ ] Play a short LTC test, or check that the last segment in the **Logs** tab locked at the
+      expected frame rate.
+- [ ] **Test Fire** the weekend's cues with Ableton stopped. The right scenes light up.
+- [ ] Cues for this weekend are **enabled**, and the **Next** cue on the Status tab is the first song.
+- [ ] **Arm**. The controller LED, if you have one, lights up.
+- [ ] After the service, if anything felt off: **Logs → Mark…** with what happened, then
+      **Export Logs** and send the zip.
+
+TC Trigger keeps the Mac awake while armed, so leave it armed for the whole weekend if you like.
+It only ever sends MIDI when it hears a cue's timecode.
 
 ## Run the tests
 

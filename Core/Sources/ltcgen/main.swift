@@ -20,6 +20,8 @@ func usage() -> Never {
       --rate HZ               sample rate (default 48000)
       --level DBFS            LTC level (default -12)
       --dropout HH:MM:SS:FFxN silence N frames starting at that timecode (repeatable)
+      --click-after-cue MS    stereo file: LTC left, a click on the right MS after the cue
+                              (simulates Ableton's latency for testing offset calibration)
     """)
     exit(2)
 }
@@ -62,12 +64,21 @@ while let d = take("--dropout") {
     guard parts.count == 2, let t = Timecode(string: String(parts[0])), let n = Int(parts[1]) else { usage() }
     opts.dropouts.append((t, n))
 }
+let clickMs = take("--click-after-cue").flatMap(Double.init)
 if !args.isEmpty { print("Unknown arguments: \(args)"); usage() }
 
 let result = LTCGenerator.render(opts)
 let url = URL(fileURLWithPath: out)
 do {
-    try WAVWriter.write(result.samples, sampleRate: Int(sampleRate), to: url)
+    var right: [Float]?
+    if let clickMs {
+        guard let cue, let pos = result.frameStarts[cue] else { print("--click-after-cue needs --cue"); exit(2) }
+        var r = [Float](repeating: 0, count: result.samples.count)
+        let at = pos + Int((clickMs / 1000 * sampleRate).rounded())
+        for i in at..<min(at + Int(sampleRate * 0.01), r.count) { r[i] = (i - at) % 2 == 0 ? 0.8 : -0.8 }
+        right = r
+    }
+    try WAVWriter.write(result.samples, right: right, sampleRate: Int(sampleRate), to: url)
 } catch {
     print("Could not write \(out): \(error)")
     exit(1)

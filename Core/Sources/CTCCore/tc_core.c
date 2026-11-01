@@ -23,8 +23,11 @@ struct tc_rt {
     uint32_t max_frames;
 
     AudioUnit unit;
-    AudioBufferList abl; /* one mono buffer */
+    uint32_t channels;
+    /* AudioBufferList with room for two buffers (LTC + click channel). */
+    union { AudioBufferList abl; char abl_storage[sizeof(AudioBufferList) + sizeof(AudioBuffer)]; };
     float *render_buf;
+    float *click_buf;
     ltcsnd_sample_t *u8_buf;
 
     LTCDecoder *decoder;
@@ -39,6 +42,11 @@ struct tc_rt {
 
     _Atomic uint32_t peak_bits; /* float bit pattern of the running peak */
 
+    /* Offset calibration click detector (second channel). */
+    _Atomic uint64_t click_after;     /* 0 = not armed */
+    _Atomic uint32_t click_threshold; /* float bits */
+    _Atomic uint64_t click_time;      /* result, 0 = none */
+
     _Atomic uint64_t callbacks, samples, render_errors, oversize_buffers,
         discontinuities, ring_overflows, invalid_frames, stale_frames;
     _Atomic uint32_t last_buffer_frames;
@@ -48,7 +56,7 @@ static inline void bump(_Atomic uint64_t *c, uint64_t n) {
     atomic_fetch_add_explicit(c, n, memory_order_relaxed);
 }
 
-tc_rt *tc_rt_create(double sample_rate, uint32_t max_frames) {
+tc_rt *tc_rt_create(double sample_rate, uint32_t max_frames, uint32_t channels) {
     tc_rt *rt = calloc(1, sizeof(tc_rt));
     if (!rt) return NULL;
     rt->sample_rate = sample_rate;
@@ -59,18 +67,22 @@ tc_rt *tc_rt_create(double sample_rate, uint32_t max_frames) {
     /* ticks per second = 1e9 * denom / numer */
     rt->ticks_per_sample = (1.0e9 * (double)tb.denom / (double)tb.numer) / sample_rate;
 
+    rt->channels = channels >= 2 ? 2 : 1;
     rt->render_buf = calloc(max_frames, sizeof(float));
+    rt->click_buf = calloc(max_frames, sizeof(float));
     rt->u8_buf = calloc(max_frames, sizeof(ltcsnd_sample_t));
     /* apv (audio samples per video frame) is only a starting hint; libltc adapts. */
     rt->decoder = ltc_decoder_create((int)(sample_rate / 25.0), LTC_QUEUE_LEN);
-    if (!rt->render_buf || !rt->u8_buf || !rt->decoder) {
+    if (!rt->render_buf || !rt->click_buf || !rt->u8_buf || !rt->decoder) {
         tc_rt_destroy(rt);
         return NULL;
     }
-    rt->abl.mNumberBuffers = 1;
-    rt->abl.mBuffers[0].mNumberChannels = 1;
-    rt->abl.mBuffers[0].mData = rt->render_buf;
-    rt->abl.mBuffers[0].mDataByteSize = max_frames * sizeof(float);
+    rt->abl.mNumberBuffers = rt->channels;
+    for (uint32_t i = 0; i < rt->channels; i++) {
+        rt->abl.mBuffers[i].mNumberChannels = 1;
+        rt->abl.mBuffers[i].mData = i == 0 ? rt->render_buf : rt->click_buf;
+        rt->abl.mBuffers[i].mDataByteSize = max_frames * sizeof(float);
+    }
     return rt;
 }
 
@@ -78,6 +90,7 @@ void tc_rt_destroy(tc_rt *rt) {
     if (!rt) return;
     if (rt->decoder) ltc_decoder_free(rt->decoder);
     free(rt->render_buf);
+    free(rt->click_buf);
     free(rt->u8_buf);
     free(rt);
 }
@@ -189,8 +202,10 @@ OSStatus tc_rt_input_proc(void *refCon,
         bump(&rt->oversize_buffers, 1);
         return noErr;
     }
-    rt->abl.mBuffers[0].mDataByteSize = inNumberFrames * sizeof(float);
-    rt->abl.mBuffers[0].mData = rt->render_buf;
+    for (uint32_t i = 0; i < rt->channels; i++) {
+        rt->abl.mBuffers[i].mDataByteSize = inNumberFrames * sizeof(float);
+        rt->abl.mBuffers[i].mData = i == 0 ? rt->render_buf : rt->click_buf;
+    }
     OSStatus err = AudioUnitRender(rt->unit, ioActionFlags, inTimeStamp, inBusNumber,
                                    inNumberFrames, &rt->abl);
     if (err != noErr) {
@@ -210,7 +225,38 @@ OSStatus tc_rt_input_proc(void *refCon,
                         : mach_absolute_time();
 
     tc_rt_process(rt, (const float *)rt->abl.mBuffers[0].mData, inNumberFrames, host);
+    if (rt->channels == 2) {
+        tc_rt_process_click(rt, (const float *)rt->abl.mBuffers[1].mData, inNumberFrames, host);
+    }
     return noErr;
+}
+
+void tc_rt_process_click(tc_rt *rt, const float *samples, uint32_t count, uint64_t host_time) {
+    uint64_t after = atomic_load_explicit(&rt->click_after, memory_order_acquire);
+    if (after == 0) return;
+    uint32_t bits = atomic_load_explicit(&rt->click_threshold, memory_order_relaxed);
+    float threshold;
+    memcpy(&threshold, &bits, sizeof threshold);
+    for (uint32_t i = 0; i < count; i++) {
+        if (fabsf(samples[i]) < threshold) continue;
+        uint64_t t = host_time + (uint64_t)llround((double)i * rt->ticks_per_sample);
+        if (t < after) continue;
+        atomic_store_explicit(&rt->click_time, t, memory_order_relaxed);
+        atomic_store_explicit(&rt->click_after, 0, memory_order_release);
+        return;
+    }
+}
+
+void tc_rt_arm_click(tc_rt *rt, uint64_t after, float threshold) {
+    uint32_t bits;
+    memcpy(&bits, &threshold, sizeof bits);
+    atomic_store_explicit(&rt->click_threshold, bits, memory_order_relaxed);
+    atomic_store_explicit(&rt->click_time, 0, memory_order_relaxed);
+    atomic_store_explicit(&rt->click_after, after ? after : 1, memory_order_release);
+}
+
+uint64_t tc_rt_click_time(tc_rt *rt) {
+    return atomic_load_explicit(&rt->click_time, memory_order_relaxed);
 }
 
 float tc_rt_take_peak(tc_rt *rt) {

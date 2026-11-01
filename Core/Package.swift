@@ -24,7 +24,7 @@ let package = Package(
         .target(
             name: "TCTriggerKit",
             dependencies: ["CTCCore"],
-            linkerSettings: [.linkedFramework("CoreAudio"), .linkedFramework("AudioToolbox")]
+            linkerSettings: [.linkedFramework("CoreAudio"), .linkedFramework("AudioToolbox"), .linkedFramework("IOKit"), .linkedFramework("ServiceManagement")]
         ),
         .executableTarget(
             name: "ltcgen",

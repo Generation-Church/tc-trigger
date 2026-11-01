@@ -70,6 +70,7 @@ struct SettingsTab: View {
     @EnvironmentObject var model: AppModel
     @State private var campusDraft = ""
     @State private var offsetDraft = 0.0
+    @State private var showCalibration = false
 
     var body: some View {
         Form {
@@ -122,6 +123,9 @@ struct SettingsTab: View {
                 }
                 Text("If the exact cue frame is lost (a codec glitch), still fire when LTC returns within this many frames after the cue. Later than that never fires.")
                     .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Measure with a loopback cable") {
+                    Button("Calibrate Offset…") { showCalibration = true }
+                }
             }
 
             Section("MIDI") {
@@ -132,6 +136,16 @@ struct SettingsTab: View {
 
             MIDIControlSection()
 
+            Section("Startup") {
+                Toggle("Launch TC Trigger at login", isOn: Binding(get: { model.launchAtLogin },
+                                                                   set: { model.setLaunchAtLogin($0) }))
+                if let msg = model.launchAtLoginMessage {
+                    Text(msg).font(.caption).foregroundStyle(.orange)
+                }
+                Text("While armed, TC Trigger keeps the Mac from going to sleep (the display can still sleep). App Nap is always off for TC Trigger.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Files") {
                 LabeledContent("Logs") {
                     Button("Show in Finder") { NSWorkspace.shared.open(model.log.directory) }
@@ -139,6 +153,8 @@ struct SettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showCalibration) { CalibrationSheet(isPresented: $showCalibration) }
+        .onChange(of: model.settings.offsetMs) { _, v in offsetDraft = Double(v) }
         .onAppear {
             campusDraft = model.settings.campusName
             offsetDraft = Double(model.settings.offsetMs)

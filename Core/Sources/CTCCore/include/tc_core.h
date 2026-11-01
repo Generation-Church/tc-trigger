@@ -43,7 +43,8 @@ typedef struct tc_rt tc_rt;
 #pragma clang assume_nonnull begin
 
 /// Create the real-time state. Allocates everything up front. Not real-time safe.
-tc_rt *_Nullable tc_rt_create(double sample_rate, uint32_t max_frames_per_callback);
+/// `channels` is 1 (LTC only) or 2 (LTC + a click-detect channel for offset calibration).
+tc_rt *_Nullable tc_rt_create(double sample_rate, uint32_t max_frames_per_callback, uint32_t channels);
 /// Free it. Only call after the audio unit has been stopped.
 void tc_rt_destroy(tc_rt *rt);
 
@@ -71,6 +72,14 @@ float tc_rt_take_peak(tc_rt *rt);
 
 /// Copy the current counters.
 void tc_rt_get_stats(tc_rt *rt, tc_rt_stats_t *out);
+
+/// Offset calibration: report the first sample on the second channel louder than `threshold`
+/// (0–1) at or after host time `after`. Call again to re-arm.
+void tc_rt_arm_click(tc_rt *rt, uint64_t after, float threshold);
+/// Host time of the detected click, or 0 if none yet.
+uint64_t tc_rt_click_time(tc_rt *rt);
+/// Second channel feed for tests (same rules as the callback). Real-time safe.
+void tc_rt_process_click(tc_rt *rt, const float *samples, uint32_t count, uint64_t host_time);
 
 /// Host-clock ticks per audio sample at this sample rate.
 double tc_rt_ticks_per_sample(tc_rt *rt);

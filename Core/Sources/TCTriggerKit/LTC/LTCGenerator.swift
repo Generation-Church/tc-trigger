@@ -80,17 +80,31 @@ public struct LTCGenerator {
     }
 }
 
-/// Writes mono 16-bit PCM WAV files.
+/// Writes 16-bit PCM WAV files (mono, or stereo when `right` is given).
 public enum WAVWriter {
-    public static func write(_ samples: [Float], sampleRate: Int, to url: URL) throws {
+    public static func write(_ samples: [Float], right: [Float]? = nil, sampleRate: Int, to url: URL) throws {
+        let channels = right == nil ? 1 : 2
+        var interleaved = samples
+        if let right {
+            interleaved = []
+            interleaved.reserveCapacity(samples.count * 2)
+            for i in 0..<samples.count {
+                interleaved.append(samples[i])
+                interleaved.append(i < right.count ? right[i] : 0)
+            }
+        }
+        try writeInterleaved(interleaved, channels: channels, sampleRate: sampleRate, to: url)
+    }
+
+    static func writeInterleaved(_ samples: [Float], channels: Int, sampleRate: Int, to url: URL) throws {
         var data = Data()
         func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
         func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
         let bytes = UInt32(samples.count * 2)
         data.append(contentsOf: Array("RIFF".utf8)); u32(36 + bytes)
         data.append(contentsOf: Array("WAVE".utf8))
-        data.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1)
-        u32(UInt32(sampleRate)); u32(UInt32(sampleRate * 2)); u16(2); u16(16)
+        data.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(UInt16(channels))
+        u32(UInt32(sampleRate)); u32(UInt32(sampleRate * 2 * channels)); u16(UInt16(2 * channels)); u16(16)
         data.append(contentsOf: Array("data".utf8)); u32(bytes)
         data.reserveCapacity(data.count + samples.count * 2)
         for s in samples {

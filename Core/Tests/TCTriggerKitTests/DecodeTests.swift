@@ -12,7 +12,7 @@ struct DecodeTests {
     }
 
     static func decode(_ out: LTCGenerator.Output, chunk: Int = 512) -> Decoded {
-        let rt = tc_rt_create(out.sampleRate, 4096)!
+        let rt = tc_rt_create(out.sampleRate, 4096, 1)!
         defer { tc_rt_destroy(rt) }
         let tps = tc_rt_ticks_per_sample(rt)
         var frames: [DecodedFrame] = []
@@ -121,7 +121,7 @@ struct StaleFrameTests {
         let gap = [Float](repeating: 0, count: 48000 * 5)
         let joined = LTCGenerator.Output(samples: a.samples + gap + b.samples, frameStarts: [:], sampleRate: 48000)
 
-        let rt = tc_rt_create(48000, 4096)!
+        let rt = tc_rt_create(48000, 4096, 1)!
         defer { tc_rt_destroy(rt) }
         let tps = tc_rt_ticks_per_sample(rt)
         var lateness: [Double] = []

@@ -15,6 +15,8 @@ public struct AudioInputInfo: Equatable, Sendable {
     public var deviceName: String
     public var deviceUID: String
     public var channel: Int // 1-based
+    /// 1-based loopback channel listened to for offset calibration, if any.
+    public var clickChannel: Int?
     public var sampleRate: Double
     public var bufferFrames: Int?
 }
@@ -36,11 +38,15 @@ public final class AudioInput {
     public var isRunning: Bool { unit != nil }
 
     /// Start capturing `channel` (1-based) of `device`.
-    public func start(device: AudioInputDevice, channel: Int) throws {
+    public func start(device: AudioInputDevice, channel: Int, clickChannel: Int? = nil) throws {
         stop()
         guard channel >= 1, channel <= device.inputChannels else {
             throw AudioInputError(step: "Channel \(channel) not available on \(device.name)", status: -50)
         }
+        if let c = clickChannel, c < 1 || c > device.inputChannels || c == channel {
+            throw AudioInputError(step: "Calibration channel \(c) not usable on \(device.name)", status: -50)
+        }
+        let channelCount: UInt32 = clickChannel == nil ? 1 : 2
 
         var desc = AudioComponentDescription(componentType: kAudioUnitType_Output,
                                              componentSubType: kAudioUnitSubType_HALOutput,
@@ -74,14 +80,15 @@ public final class AudioInput {
                 mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved,
                 mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4, mChannelsPerFrame: 1,
                 mBitsPerChannel: 32, mReserved: 0)
+            client.mChannelsPerFrame = channelCount
             try set(au, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1, &client, "Set client format")
-            var map: [Int32] = [Int32(channel - 1)]
+            var map: [Int32] = [Int32(channel - 1)] + (clickChannel.map { [Int32($0 - 1)] } ?? [])
             try check(AudioUnitSetProperty(au, kAudioOutputUnitProperty_ChannelMap, kAudioUnitScope_Output, 1,
-                                           &map, UInt32(MemoryLayout<Int32>.size)), "Set channel map")
+                                           &map, UInt32(MemoryLayout<Int32>.size * map.count)), "Set channel map")
             var maxFrames = Self.maxFramesPerCallback
             try set(au, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maxFrames, "Set max frames")
 
-            guard let r = tc_rt_create(sampleRate, Self.maxFramesPerCallback) else {
+            guard let r = tc_rt_create(sampleRate, Self.maxFramesPerCallback, channelCount) else {
                 throw AudioInputError(step: "Allocate decoder", status: -1)
             }
             created = r
@@ -95,7 +102,7 @@ public final class AudioInput {
             unit = au
             rt = r
             info = AudioInputInfo(deviceID: device.deviceID, deviceName: device.name, deviceUID: device.uid,
-                                  channel: channel, sampleRate: sampleRate,
+                                  channel: channel, clickChannel: clickChannel, sampleRate: sampleRate,
                                   bufferFrames: AudioDevices.bufferFrameSize(device.deviceID))
         } catch {
             AudioUnitUninitialize(au)
@@ -124,6 +131,17 @@ public final class AudioInput {
         guard let rt else { return nil }
         var f = tc_frame_t()
         return tc_rt_pop_frame(rt, &f) != 0 ? DecodedFrame(f) : nil
+    }
+
+    public func armClick(after: UInt64, threshold: Float) {
+        guard let rt else { return }
+        tc_rt_arm_click(rt, after, threshold)
+    }
+
+    public func clickTime() -> UInt64? {
+        guard let rt else { return nil }
+        let t = tc_rt_click_time(rt)
+        return t == 0 ? nil : t
     }
 
     public func takePeak() -> Float {

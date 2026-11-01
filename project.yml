@@ -12,7 +12,7 @@ packages:
 
 settings:
   base:
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     ARCHS: arm64
@@ -34,6 +34,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
+        CFBundleURLTypes:
+          - CFBundleURLName: church.generation.tctrigger
+            CFBundleURLSchemes: [tctrigger]
         LSMinimumSystemVersion: "14.0"
         LSApplicationCategoryType: public.app-category.music
         NSMicrophoneUsageDescription: TC Trigger listens to the LTC timecode channel on your audio interface.

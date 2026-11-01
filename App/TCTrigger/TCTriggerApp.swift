@@ -21,6 +21,7 @@ struct TCTriggerApp: App {
                 .environmentObject(model)
         }
         .defaultSize(width: 640, height: 520)
+        .handlesExternalEvents(matching: ["open"])
     }
 }
 
@@ -41,6 +42,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Double-clicking TC Trigger while it's already running opens the main window
+    /// (the menu-bar icon can be hidden behind the notch on a crowded menu bar).
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        Self.showMainWindow()
+        return true
+    }
+
+    @MainActor static func showMainWindow() {
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == MainWindow.id }) {
+            window.makeKeyAndOrderFront(nil)
+        } else if let url = URL(string: "tctrigger://open") {
+            NSWorkspace.shared.open(url)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
 }
 
 /// Menu-bar icon: gray = idle, blue = locked, green = armed (bolt), yellow flash on every fire.

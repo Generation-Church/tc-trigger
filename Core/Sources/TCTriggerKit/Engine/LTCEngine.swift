@@ -43,6 +43,7 @@ public struct EngineSnapshot: Equatable, Sendable {
     public var fireCount = 0
     /// The cue Fire Next counts from.
     public var lastFireCueIDForNext: UUID?
+    public var calibration = CalibrationStatus()
 
     public init() {}
 }
@@ -70,10 +71,16 @@ public final class LTCEngine: @unchecked Sendable {
     private var wantedUID: String?
     private var wantedName: String?
     private var wantedChannel = 1
+    private var wantedClickChannel: Int?
+    private var pendingClick: (cue: Cue, cueFrameTime: UInt64, offsetMs: Double, deadline: UInt64)?
+    /// Click threshold: about −20 dBFS.
+    public static let clickThreshold: Float = 0.1
     private var running = false
     private var lastPoll: UInt64 = 0
     private var lastSecond: UInt64 = 0
     private var lastRTStats = tc_rt_stats_t()
+    private var stalledSeconds = 0
+    private var restartCount = 0
     private var levelDb = -120.0
     private var ltcLevelSum = 0.0
     private var ltcLevelCount = 0
@@ -150,6 +157,21 @@ public final class LTCEngine: @unchecked Sendable {
             self.scheduler.sendNow(messages.map { ($0.status, $0.data1, $0.data2) })
             self.log.warning(.midi, "manual.panic", "PANIC (\(source)): sent \(messages.count) note-off messages, cancelled \(cancelled) pending cue\(cancelled == 1 ? "" : "s")",
                              ["source": .string(source), "messages": .int(messages.count), "cancelled": .int(cancelled)])
+        }
+    }
+
+    /// Offset calibration: listen for the loopback click on this input channel (nil = off).
+    public func setCalibration(clickChannel: Int?) {
+        queue.async {
+            self.wantedClickChannel = clickChannel
+            self.snap.calibration = CalibrationStatus()
+            self.snap.calibration.clickChannel = clickChannel
+            self.pendingClick = nil
+            self.log.info(.audio, clickChannel == nil ? "cal.stopped" : "cal.started",
+                          clickChannel.map { "Offset calibration started (click on input \($0))" } ?? "Offset calibration stopped",
+                          ["click_channel": clickChannel.map { .int($0) } ?? .null])
+            if self.running { self.reconcile(reason: "calibration") }
+            self.publish()
         }
     }
 
@@ -248,7 +270,7 @@ public final class LTCEngine: @unchecked Sendable {
         }
 
         if let info = input.info, input.isRunning,
-           info.deviceID == device.deviceID, info.channel == wantedChannel,
+           info.deviceID == device.deviceID, info.channel == wantedChannel, info.clickChannel == wantedClickChannel,
            abs(info.sampleRate - (AudioDevices.nominalSampleRate(device.deviceID) ?? info.sampleRate)) < 0.5 {
             return // already running as wanted
         }
@@ -258,7 +280,7 @@ public final class LTCEngine: @unchecked Sendable {
         let wasRunning = input.isRunning
         let channel = wantedChannel
         do {
-            try input.start(device: device, channel: channel)
+            try input.start(device: device, channel: channel, clickChannel: wantedClickChannel)
             watcher?.watchDevice(device.deviceID)
             guard let info = input.info else { return }
             let fields: LogFields = [
@@ -298,6 +320,7 @@ public final class LTCEngine: @unchecked Sendable {
         }
         handle(core.tick(now: now))
         updateNextCue(now: now)
+        checkCalibrationClick(now: now)
 
         // Meter: instant attack, ~24 dB/s fall-off.
         let peak = Double(input.takePeak())
@@ -335,6 +358,10 @@ public final class LTCEngine: @unchecked Sendable {
             switch a {
             case let .schedule(cue, at, cueFrameTime, via, lateFrames, isUpdate):
                 scheduler.schedule(cue, at: at, via: via, lateFrames: lateFrames, cueFrameTime: cueFrameTime)
+                if wantedClickChannel != nil, !isUpdate {
+                    // Only a click after the fire can be Ableton's.
+                    input.armClick(after: HostClock.adding(-0.005, to: at), threshold: Self.clickThreshold)
+                }
                 let lead = HostClock.seconds(from: now, to: at)
                 let fields: LogFields = cue.logFields.merging([
                     "via": .string(via.rawValue), "late_frames": .int(lateFrames),
@@ -362,6 +389,28 @@ public final class LTCEngine: @unchecked Sendable {
         }
     }
 
+    private func checkCalibrationClick(now: UInt64) {
+        guard let p = pendingClick else { return }
+        if let click = input.clickTime() {
+            let m = OffsetCalibration.measure(cueName: p.cue.name, cueFrameTime: p.cueFrameTime, clickTime: click,
+                                              offsetUsedMs: p.offsetMs)
+            snap.calibration.measurements.append(m)
+            snap.calibration.waitingForClick = false
+            snap.calibration.lastProblem = nil
+            pendingClick = nil
+            log.info(.audio, "cal.measurement",
+                     "Calibration: click arrived \(String(format: "%+.1f", m.delayMs)) ms after the cue frame → suggested offset \(String(format: "%+.0f", m.suggestedOffsetMs)) ms",
+                     ["delay_ms": .double(m.delayMs), "offset_used_ms": .double(m.offsetUsedMs),
+                      "suggested_offset_ms": .double(m.suggestedOffsetMs), "cue": .string(p.cue.name)])
+        } else if now > p.deadline {
+            pendingClick = nil
+            let ch = wantedClickChannel ?? 0
+            snap.calibration.waitingForClick = false
+            snap.calibration.lastProblem = "No click heard on input \(ch) within 2 seconds of the fire. Check the loopback cable, the test clip and that TC Trigger is armed."
+            log.warning(.audio, "cal.no_click", "Calibration: no click heard on input \(ch) within 2 s", ["click_channel": .int(ch)])
+        }
+    }
+
     private func handleReport(_ r: FireReport) {
         if r.kind != .test {
             core.cues.markFired(r.cue.id)
@@ -370,6 +419,10 @@ public final class LTCEngine: @unchecked Sendable {
         }
         snap.lastFire = r
         snap.fireCount += 1
+        if wantedClickChannel != nil, r.kind == .fired, let frame = r.cueFrameTime {
+            pendingClick = (r.cue, frame, core.cues.config.offset * 1000, HostClock.adding(2, to: HostClock.now()))
+            snap.calibration.waitingForClick = true
+        }
         publish()
         guard r.kind != .test else { return }
 
@@ -470,6 +523,22 @@ public final class LTCEngine: @unchecked Sendable {
         }
         guard let s = input.stats() else { return }
         let o = lastRTStats
+        // Watchdog: a running input that stops calling back for 2 s is restarted.
+        if s.callbacks == o.callbacks {
+            stalledSeconds += 1
+            if stalledSeconds >= 2 {
+                stalledSeconds = 0
+                restartCount += 1
+                let name = input.info?.deviceName ?? "input"
+                log.warning(.audio, "audio.stalled", "Audio from \(name) stopped arriving; restarting the input",
+                            ["device": .string(name), "restarts": .int(restartCount)])
+                input.stop()
+                reconcile(reason: "audio stalled")
+                return
+            }
+        } else {
+            stalledSeconds = 0
+        }
         if s.render_errors > o.render_errors || s.ring_overflows > o.ring_overflows || s.oversize_buffers > o.oversize_buffers {
             log.warning(.audio, "audio.rt_problem", "Audio thread reported problems",
                         ["render_errors": .int(Int(s.render_errors - o.render_errors)),
