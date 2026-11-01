@@ -10,10 +10,27 @@ TC Trigger measures this for you with a short loopback cable.
 
 ## What you need
 
-- A cable from one spare **output** of the audio interface to one spare **input** of the same
-  interface. On a 2-in/2-out interface you can temporarily use output 2 → input 2, as long as the
+- A loopback from one spare **output** to one spare **input** of the same audio device: a short
+  cable on a physical interface, or a Dante route with Dante Virtual Soundcard (see below). On a 2-in/2-out interface you can temporarily use output 2 → input 2, as long as the
   LTC is on input 1.
 - About 10 minutes, with nobody using the PA. The click is loud.
+
+### With Dante Virtual Soundcard (DVS)
+
+If the LTC and Ableton both use DVS, the "cable" is a Dante route:
+
+1. Pick a spare DVS **transmit** channel for the calibration click (Ableton output) and a spare DVS
+   **receive** channel that is *not* the LTC channel.
+2. In **Dante Controller**, route that transmit channel to that receive channel.
+3. In the steps below, "spare output" means that DVS transmit channel, and "loopback input" means
+   that DVS receive channel.
+
+If Dante Controller won't let DVS receive its own channel, don't loop through the mixing console:
+its processing delay would be counted as if it were Ableton's, and the suggested offset would be
+too large. Use a device that passes audio straight through (a Dante I/O box, or a second DVS
+computer) and subtract that device's Dante latency setting from the result.
+
+Re-measure whenever you change the **DVS latency** setting, since it shifts when the LTC arrives.
 
 ## One-time Ableton setup
 
