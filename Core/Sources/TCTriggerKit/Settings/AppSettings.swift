@@ -27,11 +27,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var feedbackDestinationID: Int32?
     public var feedbackDestinationName: String?
     public var feedbackTrigger: MIDITrigger?
+    /// Verbose logging is on until this time (it turns itself off after 24 hours).
+    public var verboseUntil: Date?
+
+    public static let verboseDuration: TimeInterval = 24 * 3600
 
     public static let offsetRange = -500...500
     public static let catchWindowRange = 0...10
 
     public init() {}
+
+    public func isVerbose(at now: Date = Date()) -> Bool { verboseUntil.map { $0 > now } ?? false }
 
     public var mappings: [ControlAction: MIDITrigger] {
         Dictionary(uniqueKeysWithValues: controlMappings.compactMap { k, v in ControlAction(rawValue: k).map { ($0, v) } })
@@ -42,6 +48,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case offsetMs, catchWindowFrames, armed, midiSourceUniqueID
         case controlInputID, controlInputName, controlMappings
         case feedbackDestinationID, feedbackDestinationName, feedbackTrigger
+        case verboseUntil
     }
 
     public init(from decoder: Decoder) throws {
@@ -63,6 +70,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         feedbackDestinationID = try c.decodeIfPresent(Int32.self, forKey: .feedbackDestinationID)
         feedbackDestinationName = try c.decodeIfPresent(String.self, forKey: .feedbackDestinationName)
         feedbackTrigger = try? c.decodeIfPresent(MIDITrigger.self, forKey: .feedbackTrigger)
+        verboseUntil = try? c.decodeIfPresent(Date.self, forKey: .verboseUntil)
     }
 }
 

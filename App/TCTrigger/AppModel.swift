@@ -32,6 +32,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var controlInputConnected = false
     @Published private(set) var feedbackConnected = false
     private var learnSession = LearnSession()
+    private var maintenanceTimer: Timer?
     private var learnTimer: Timer?
 
     private var uiTimer: Timer?
@@ -85,6 +86,14 @@ final class AppModel: ObservableObject {
         engine.setTiming(offsetMs: initial.offsetMs, catchWindowFrames: initial.catchWindowFrames)
         engine.setArmed(initial.armed, source: "app launch")
         setUpMIDIControl(initial)
+        log.verbose = initial.isVerbose()
+        if log.verbose, let until = initial.verboseUntil {
+            log.info(.app, "log.verbose_on", "Verbose logging is on until \(until.formatted(date: .abbreviated, time: .shortened))")
+        }
+        runMaintenance()
+        maintenanceTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.runMaintenance() }
+        }
 
         refreshDevices()
         engine.configure(deviceUID: settings.audioDeviceUID, deviceName: settings.audioDeviceName,
@@ -178,6 +187,59 @@ final class AppModel: ObservableObject {
     }
 
     func sendFeedbackTest() { sendFeedback(armed: settings.armed) }
+
+    // MARK: Logging
+
+    var verboseOn: Bool { settings.isVerbose() }
+
+    func setVerbose(_ on: Bool) {
+        let until = on ? Date().addingTimeInterval(AppSettings.verboseDuration) : nil
+        updateSettings { $0.verboseUntil = until }
+        log.verbose = on
+        log.info(.app, on ? "log.verbose_on" : "log.verbose_off",
+                 on ? "Verbose logging turned on for 24 hours" : "Verbose logging turned off",
+                 ["source": "ui"])
+    }
+
+    /// A manual note in the log, e.g. "band said Song 2 felt late".
+    func addMark(_ text: String) {
+        let note = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty else { return }
+        log.info(.app, "app.mark", "MARK: \(note)", ["note": .string(note), "tc": .string(snapshot.timecode?.description ?? ""),
+                                                     "lock": .string(snapshot.lockState.rawValue)])
+    }
+
+    /// Builds the troubleshooting zip on the Desktop and returns its URL.
+    func exportLogs(days: Int) async throws -> URL {
+        log.info(.app, "log.export", "Exporting logs (last \(days) days)", ["days": .int(days)])
+        log.flush()
+        var o = LogExport.Options(campus: settings.campusName, logDirectory: log.directory,
+                                  settingsFile: settingsStore.fileURL, cuesFile: cueStore.fileURL,
+                                  destinationFolder: FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0])
+        o.days = days
+        let options = o
+        let url = try await Task.detached { try LogExport.export(options) }.value
+        log.info(.app, "log.exported", "Logs exported to \(url.lastPathComponent)", ["path": .string(url.path), "days": .int(days)])
+        return url
+    }
+
+    /// Verbose auto-off and log retention (every minute; retention is cheap when nothing is due).
+    private func runMaintenance() {
+        if log.verbose, !settings.isVerbose() {
+            log.verbose = false
+            log.info(.app, "log.verbose_off", "Verbose logging turned itself off after 24 hours", ["source": "auto"])
+            updateSettings { $0.verboseUntil = nil }
+        }
+        let dir = log.directory
+        let log = self.log
+        DispatchQueue.global(qos: .utility).async {
+            let deleted = LogFiles.prune(directory: dir)
+            guard !deleted.isEmpty else { return }
+            let mb = Double(deleted.reduce(0) { $0 + $1.size }) / 1_048_576
+            log.info(.app, "log.pruned", "Deleted \(deleted.count) old log file\(deleted.count == 1 ? "" : "s") (\(String(format: "%.1f", mb)) MB)",
+                     ["files": .string(deleted.map(\.day).joined(separator: ", ")), "megabytes": .double(mb)])
+        }
+    }
 
     private func setUpMIDIControl(_ s: AppSettings) {
         interpreter.mappings = s.mappings

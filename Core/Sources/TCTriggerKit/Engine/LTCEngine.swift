@@ -383,6 +383,11 @@ public final class LTCEngine: @unchecked Sendable {
             "offset_ms": .double(core.cues.config.offset * 1000),
         ]) { a, _ in a }
         if let f = r.cueFrameTime { fields["cue_frame_time"] = .string(wall(f)) }
+        if r.kind == .fired || r.kind == .manual {
+            let on = MIDIMessage(0x90 | UInt8(r.cue.channel - 1), UInt8(r.cue.note), UInt8(r.cue.velocity))
+            log.debug(.midi, "midi.out", "MIDI out (TC Trigger source): \(on), note-off +100 ms",
+                      ["bytes": .string(on.hex), "cue": .string(r.cue.name)])
+        }
         let how = r.via == .catchWindow ? "via catch window, \(r.lateFrames) frame\(r.lateFrames == 1 ? "" : "s") late" : "exact"
         switch r.kind {
         case .fired:

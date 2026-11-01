@@ -19,8 +19,8 @@ struct MainWindow: View {
             SettingsTab()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
 
-            RecentLogTab()
-                .tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
+            LogsTab()
+                .tabItem { Label("Logs", systemImage: "list.bullet.rectangle") }
         }
         .frame(minWidth: 680, minHeight: 520)
     }
@@ -30,6 +30,21 @@ struct MainWindow: View {
 struct MenuBarPanel: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
+
+    /// One click for a volunteer: last 7 days → Desktop → shown in Finder.
+    private func exportLogs() {
+        Task {
+            do {
+                let url = try await model.exportLogs(days: 7)
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't export logs"
+                alert.informativeText = "\(error)"
+                alert.runModal()
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -41,11 +56,13 @@ struct MenuBarPanel: View {
                     NSApp.activate(ignoringOtherApps: true)
                 }
                 Spacer()
+                Button("Export Logs") { exportLogs() }
+                    .help("Save the last 7 days of logs to the Desktop as a zip")
                 Button("Quit") { NSApp.terminate(nil) }
             }
         }
         .padding(14)
-        .frame(width: 360)
+        .frame(width: 380)
     }
 }
 
@@ -147,35 +164,5 @@ struct SettingsTab: View {
 
     private var channelBinding: Binding<Int> {
         Binding(get: { model.settings.audioChannel }, set: { ch in model.updateSettings { $0.audioChannel = ch } })
-    }
-}
-
-/// Simple live log for M1 (the full viewer with filters and export arrives in M5).
-struct RecentLogTab: View {
-    @EnvironmentObject var model: AppModel
-    private static let time: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss.SSS"
-        return f
-    }()
-
-    var body: some View {
-        List(model.recentLog) { e in
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(Self.time.string(from: e.timestamp)).monospacedDigit().foregroundStyle(.secondary)
-                Text(e.category.rawValue).font(.caption.weight(.semibold)).frame(width: 56, alignment: .leading)
-                Text(e.message).textSelection(.enabled)
-            }
-            .font(.callout)
-            .listRowBackground(color(for: e))
-        }
-    }
-
-    private func color(for e: LogEntry) -> Color {
-        switch e.level {
-        case .error: return .red.opacity(0.15)
-        case .warning: return .yellow.opacity(0.18)
-        default: return .clear
-        }
     }
 }

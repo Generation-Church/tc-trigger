@@ -2,6 +2,7 @@
 //
 //   ltcmon --list
 //   ltcmon --device "MOTU 828" --channel 3 --seconds 30
+//   ltcmon --export-logs 7 [--to FOLDER]     (same zip as the app's Export Logs)
 
 import Foundation
 import TCTriggerKit
@@ -14,6 +15,25 @@ func take(_ flag: String) -> String? {
     let v = args[i + 1]
     args.removeSubrange(i...(i + 1))
     return v
+}
+
+if let days = take("--export-logs").flatMap(Int.init) {
+    // Same zip as the app's Export Logs button.
+    let support = SettingsStore.defaultDirectory
+    let settings = SettingsStore(log: nil).settings
+    let dest = take("--to").map { URL(fileURLWithPath: $0) }
+        ?? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
+    var o = LogExport.Options(campus: settings.campusName, logDirectory: EventLog.defaultDirectory,
+                              settingsFile: support.appendingPathComponent("settings.json"),
+                              cuesFile: support.appendingPathComponent("cues.json"), destinationFolder: dest)
+    o.days = days
+    do {
+        print("Wrote \(try LogExport.export(o).path)")
+        exit(0)
+    } catch {
+        print("Export failed: \(error)")
+        exit(1)
+    }
 }
 
 if args.contains("--list") {

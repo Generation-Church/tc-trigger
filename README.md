@@ -4,7 +4,7 @@ A small macOS menu-bar app that listens to LTC (SMPTE linear timecode) on an aud
 launches Ableton Live scenes over MIDI when it hears specific frames. It's built for Generation
 Church's satellite campuses, where the LTC arrives over Resi alongside the streamed singer.
 
-**Status:** Milestone 4 of 6. It locks to LTC, fires cues as scheduled MIDI notes through its
+**Status:** Milestone 5 of 6. It locks to LTC, fires cues as scheduled MIDI notes through its
 own virtual MIDI source "TC Trigger", and logs every fire, near-miss and miss. See
 [docs/DESIGN.md](docs/DESIGN.md) for how it works.
 
@@ -114,11 +114,39 @@ swift run --package-path Core ltcmon --device "MOTU 828" --channel 3 --seconds 3
 
 ## Logs
 
-`~/Library/Logs/TC Trigger/TC-Trigger_YYYY-MM-DD.jsonl`, one JSON object per line. The **Log**
-tab shows recent events live. Important events also appear in Console.app under the subsystem
-`church.generation.tctrigger`.
+Everything is written to `~/Library/Logs/TC Trigger/TC-Trigger_YYYY-MM-DD.jsonl`, one JSON
+object per line. Files older than 90 days are deleted automatically, and the folder is capped at
+500 MB. Important events also appear in Console.app under `church.generation.tctrigger`.
 
-Settings are stored in `~/Library/Application Support/TC Trigger/settings.json`.
+**Logs tab** (main window):
+- The live view shows the newest entries first.
+- You can filter by level, category, date range, and search text.
+- **Highlights:** fires are green, misses and errors red, warnings yellow, and marks blue.
+- Click a row to see all its details.
+- **Mark…** adds your own note (e.g. "band said Song 2 felt late"), so a reported problem can be
+  lined up with the data later.
+- **Verbose** adds more detail:
+  - LTC signal level once a second
+  - decode statistics
+  - timing measurements
+  - raw MIDI in and out
+
+  It turns itself off after 24 hours.
+
+**Export Logs** (in the Logs tab, or in the menu-bar panel for one click) makes
+`TC-Trigger_<Campus>_<date>.zip` on the Desktop and shows it in Finder. It contains:
+- the last 7 days of logs (or all 90)
+- settings and the cue list
+- system info: versions, Mac model, and the audio and MIDI devices present
+
+From Terminal, the same zip can be made with:
+
+```bash
+swift run --package-path Core ltcmon --export-logs 7
+```
+
+Settings are stored in `~/Library/Application Support/TC Trigger/settings.json`, the cue list in
+`cues.json` next to it.
 
 ## License notes
 
