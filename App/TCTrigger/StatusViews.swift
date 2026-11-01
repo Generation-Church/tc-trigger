@@ -91,6 +91,7 @@ struct StatusPanel: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
             ArmButton(compact: compact)
+            ManualButtons(compact: compact)
             NextCueLine()
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
@@ -181,8 +182,8 @@ struct NextCueLine: View {
             }
             if let f = s.lastFire {
                 HStack {
-                    Image(systemName: f.kind == .fired ? "checkmark.circle.fill" : "circle.dashed")
-                        .foregroundStyle(f.kind == .fired ? Color.green : Color.secondary)
+                    Image(systemName: f.kind == .fired || f.kind == .manual ? "checkmark.circle.fill" : "circle.dashed")
+                        .foregroundStyle(f.kind == .fired || f.kind == .manual ? Color.green : Color.secondary)
                     Text(lastFireText(f)).font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -198,6 +199,7 @@ struct NextCueLine: View {
             return "Fired \(f.cue.name)\(how), \(when)"
         case .wouldHaveFired: return "Would have fired \(f.cue.name) (disarmed), \(when)"
         case .test: return "Test fired \(f.cue.name), \(when)"
+        case .manual: return "Fired \(f.cue.name) manually (Fire Next), \(when)"
         }
     }
 }

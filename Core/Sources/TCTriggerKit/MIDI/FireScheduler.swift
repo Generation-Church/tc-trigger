@@ -9,6 +9,8 @@ public struct FireReport: Sendable {
         case wouldHaveFired = "would have fired"
         /// Test Fire from the UI (ignores timecode and armed state).
         case test
+        /// Fire Next Cue (UI or MIDI control): sends regardless of timecode and armed state.
+        case manual
     }
 
     public let cue: Cue
@@ -34,7 +36,7 @@ public final class FireScheduler: @unchecked Sendable {
     public static let noteOffDelay = 0.1
 
     private enum Payload {
-        case cue(Cue, via: FireVia?, lateFrames: Int, cueFrameTime: UInt64?, scheduledAt: UInt64, test: Bool)
+        case cue(Cue, via: FireVia?, lateFrames: Int, cueFrameTime: UInt64?, scheduledAt: UInt64, forced: FireReport.Kind?)
         case noteOff(channel: Int, note: Int)
     }
 
@@ -85,7 +87,7 @@ public final class FireScheduler: @unchecked Sendable {
         cond.lock()
         items.removeAll { $0.key == cue.id }
         add(at: at, key: cue.id, payload: .cue(cue, via: via, lateFrames: lateFrames, cueFrameTime: cueFrameTime,
-                                              scheduledAt: HostClock.now(), test: false))
+                                              scheduledAt: HostClock.now(), forced: nil))
         cond.signal()
         cond.unlock()
     }
@@ -107,10 +109,20 @@ public final class FireScheduler: @unchecked Sendable {
     }
 
     /// Send a cue right now regardless of timecode and armed state (Test Fire).
-    public func testFire(_ cue: Cue) {
+    public func testFire(_ cue: Cue) { fireNow(cue, kind: .test) }
+
+    /// Fire Next Cue: send now regardless of timecode and armed state; counts as the cue's fire.
+    public func manualFire(_ cue: Cue) {
+        cond.lock()
+        items.removeAll { $0.key == cue.id } // supersedes any pending timecode schedule
+        cond.unlock()
+        fireNow(cue, kind: .manual)
+    }
+
+    private func fireNow(_ cue: Cue, kind: FireReport.Kind) {
         cond.lock()
         let now = HostClock.now()
-        add(at: now, key: nil, payload: .cue(cue, via: nil, lateFrames: 0, cueFrameTime: nil, scheduledAt: now, test: true))
+        add(at: now, key: nil, payload: .cue(cue, via: nil, lateFrames: 0, cueFrameTime: nil, scheduledAt: now, forced: kind))
         cond.signal()
         cond.unlock()
     }
@@ -170,8 +182,8 @@ public final class FireScheduler: @unchecked Sendable {
         case let .noteOff(channel, note):
             sink?.send(0x80 | UInt8(channel - 1), UInt8(note), 0, hostTime: item.at)
 
-        case let .cue(cue, via, lateFrames, cueFrameTime, scheduledAt, test):
-            let send = armed || test
+        case let .cue(cue, via, lateFrames, cueFrameTime, scheduledAt, forced):
+            let send = armed || forced != nil
             let sentAt: UInt64
             if send {
                 // Stamp with the intended time (receivers that honour timestamps line up exactly).
@@ -184,7 +196,7 @@ public final class FireScheduler: @unchecked Sendable {
             } else {
                 sentAt = HostClock.now()
             }
-            let kind: FireReport.Kind = test ? .test : (armed ? .fired : .wouldHaveFired)
+            let kind: FireReport.Kind = forced ?? (armed ? .fired : .wouldHaveFired)
             onReport?(FireReport(cue: cue, kind: kind, via: via, lateFrames: lateFrames, target: item.at,
                                  sentAt: sentAt, scheduledAt: scheduledAt, cueFrameTime: cueFrameTime))
         }

@@ -4,7 +4,7 @@ A small macOS menu-bar app that listens to LTC (SMPTE linear timecode) on an aud
 launches Ableton Live scenes over MIDI when it hears specific frames. It's built for Generation
 Church's satellite campuses, where the LTC arrives over Resi alongside the streamed singer.
 
-**Status:** Milestone 3 of 6. It locks to LTC, fires cues as scheduled MIDI notes through its
+**Status:** Milestone 4 of 6. It locks to LTC, fires cues as scheduled MIDI notes through its
 own virtual MIDI source "TC Trigger", and logs every fire, near-miss and miss. See
 [docs/DESIGN.md](docs/DESIGN.md) for how it works.
 
@@ -39,6 +39,23 @@ The app lives in the menu bar (a waveform icon: gray = no lock, blue = locked). 
 5. Click **Arm** in TC Trigger (the menu-bar icon turns green).
 
 When disarmed, cues never send MIDI, but the log still records "Would have fired".
+
+## MIDI controller (optional)
+
+In **Settings → MIDI control**, choose your controller as the **Controller input**. For each action
+(Arm/Disarm Toggle, Arm, Disarm, Fire Next Cue, Panic), click **Learn** and press the button.
+TC Trigger detects whether the button sends a press and a release, or a single message per press,
+so one press never counts twice.
+
+For an LED that shows the armed state, choose the controller under **Feedback output**. Then click
+**Learn** next to **Armed LED** and press the button whose light should follow. TC Trigger sends
+127 when armed and 0 when disarmed. It re-sends this at launch and whenever the controller reconnects.
+
+- **Fire Next Cue** sends the next enabled cue after the last one fired, right away, even when
+  disarmed. It's the manual backup if LTC fails.
+- **Panic** sends a note-off for every cue note, sends All Notes Off on all 16 channels, and cancels
+  any cue waiting to fire.
+- Nothing automatic ever arms TC Trigger. Only you can, with the button or your controller.
 
 ## Share a cue list between campuses
 

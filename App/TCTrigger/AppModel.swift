@@ -13,6 +13,11 @@ final class AppModel: ObservableObject {
     let cueStore: CueStore
     let engine: LTCEngine
     private let midiSource: VirtualMIDISource?
+    let midiController: MIDIController?
+    private let interpreter = ControlInterpreter()
+
+    /// What MIDI Learn is currently waiting for.
+    enum LearnTarget: Equatable { case action(ControlAction), feedback }
 
     @Published private(set) var settings: AppSettings
     @Published private(set) var snapshot = EngineSnapshot()
@@ -21,6 +26,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var recentLog: [LogEntry] = []
     @Published private(set) var cues: [Cue] = []
     @Published private(set) var midiStatus: String
+    @Published private(set) var midiSources: [MIDIEndpointInfo] = []
+    @Published private(set) var midiDestinations: [MIDIEndpointInfo] = []
+    @Published private(set) var learning: LearnTarget?
+    @Published private(set) var controlInputConnected = false
+    @Published private(set) var feedbackConnected = false
+    private var learnSession = LearnSession()
+    private var learnTimer: Timer?
 
     private var uiTimer: Timer?
     private var deviceTimer: Timer?
@@ -43,6 +55,7 @@ final class AppModel: ObservableObject {
         }
         midiStatus = midiSource != nil ? "Virtual MIDI source “TC Trigger” is available" : "MIDI source unavailable: \(midiError ?? "")"
         engine = LTCEngine(log: log, midi: midiSource)
+        midiController = try? MIDIController(ownSourceName: "TC Trigger")
 
         log.info(.app, "app.launch", "TC Trigger \(SystemInfo.appVersion) started",
                  ["app_version": .string(SystemInfo.appVersion), "macos": .string(SystemInfo.macOSVersion),
@@ -71,6 +84,7 @@ final class AppModel: ObservableObject {
         engine.setCues(cues)
         engine.setTiming(offsetMs: initial.offsetMs, catchWindowFrames: initial.catchWindowFrames)
         engine.setArmed(initial.armed, source: "app launch")
+        setUpMIDIControl(initial)
 
         refreshDevices()
         engine.configure(deviceUID: settings.audioDeviceUID, deviceName: settings.audioDeviceName,
@@ -108,9 +122,149 @@ final class AppModel: ObservableObject {
 
     // MARK: Arming and cues
 
-    func setArmed(_ armed: Bool) {
-        engine.setArmed(armed, source: "ui")
-        settingsStore.update(source: "ui") { $0.armed = armed }
+    func setArmed(_ armed: Bool, source: String = "ui") {
+        engine.setArmed(armed, source: source)
+        settingsStore.update(source: source) { $0.armed = armed }
+        sendFeedback(armed: armed)
+    }
+
+    func fireNext(source: String = "ui") { engine.fireNext(source: source) }
+
+    func panic(source: String = "ui") { engine.panic(source: source) }
+
+    /// The cue Fire Next would send now.
+    var fireNextCue: Cue? { nextCueToFire(after: snapshot.lastFireCueIDForNext, in: cues) }
+
+    // MARK: MIDI control
+
+    func selectControlInput(_ id: Int32?) {
+        let name = midiSources.first { $0.uniqueID == id }?.name
+        updateSettings { $0.controlInputID = id; $0.controlInputName = name }
+        midiController?.selectInput(id: id, name: name)
+        refreshMIDIStatus(logChanges: true)
+    }
+
+    func selectFeedbackOutput(_ id: Int32?) {
+        let name = midiDestinations.first { $0.uniqueID == id }?.name
+        updateSettings { $0.feedbackDestinationID = id; $0.feedbackDestinationName = name }
+        midiController?.selectOutput(id: id, name: name)
+        refreshMIDIStatus(logChanges: true)
+        sendFeedback(armed: settings.armed)
+    }
+
+    func startLearn(_ target: LearnTarget) {
+        learnSession = LearnSession()
+        learning = target
+        learnTimer?.invalidate()
+        learnTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let t = self.learnSession.finish(at: ProcessInfo.processInfo.systemUptime) else { return }
+                self.finishLearn(t)
+            }
+        }
+    }
+
+    func cancelLearn() {
+        learning = nil
+        learnTimer?.invalidate()
+    }
+
+    func clearMapping(_ target: LearnTarget) {
+        switch target {
+        case .action(let a): updateSettings { $0.controlMappings[a.rawValue] = nil }
+        case .feedback: updateSettings { $0.feedbackTrigger = nil }
+        }
+        interpreter.mappings = settings.mappings
+    }
+
+    func sendFeedbackTest() { sendFeedback(armed: settings.armed) }
+
+    private func setUpMIDIControl(_ s: AppSettings) {
+        interpreter.mappings = s.mappings
+        guard let mc = midiController else {
+            log.error(.midi, "midi.control_failed", "Could not set up MIDI control input/output")
+            return
+        }
+        mc.onMessage = { [weak self] m in self?.handleControlMessage(m) }
+        mc.onSetupChanged = { [weak self] in self?.refreshMIDIStatus(logChanges: true) }
+        mc.selectInput(id: s.controlInputID, name: s.controlInputName)
+        mc.selectOutput(id: s.feedbackDestinationID, name: s.feedbackDestinationName)
+        refreshMIDIStatus(logChanges: true)
+        sendFeedback(armed: s.armed)
+    }
+
+    private func refreshMIDIStatus(logChanges: Bool) {
+        guard let mc = midiController else { return }
+        midiSources = mc.sources()
+        midiDestinations = mc.destinations()
+        let inNow = mc.connectedInput != nil, outNow = mc.connectedOutput != nil
+        if logChanges, inNow != controlInputConnected, settings.controlInputID != nil {
+            let name = settings.controlInputName ?? "controller"
+            if inNow { log.info(.midi, "midi.control_connected", "MIDI controller connected: \(name)", ["device": .string(name)]) }
+            else { log.warning(.midi, "midi.control_disconnected", "MIDI controller disconnected: \(name)", ["device": .string(name)]) }
+        }
+        if logChanges, outNow != feedbackConnected, settings.feedbackDestinationID != nil {
+            let name = settings.feedbackDestinationName ?? "feedback output"
+            if outNow {
+                log.info(.midi, "midi.feedback_connected", "LED feedback output connected: \(name)", ["device": .string(name)])
+            } else {
+                log.warning(.midi, "midi.feedback_disconnected", "LED feedback output disconnected: \(name)", ["device": .string(name)])
+            }
+        }
+        let reconnectedOut = outNow && !feedbackConnected
+        controlInputConnected = inNow
+        feedbackConnected = outNow
+        if reconnectedOut { sendFeedback(armed: settings.armed) }
+    }
+
+    private func handleControlMessage(_ m: MIDIMessage) {
+        let now = ProcessInfo.processInfo.systemUptime
+        log.debug(.midi, "midi.in", "MIDI in: \(m)", ["bytes": .string(m.hex), "device": .string(settings.controlInputName ?? "")])
+        if learning != nil {
+            if let t = learnSession.feed(m, at: now) { finishLearn(t) }
+            return
+        }
+        for action in interpreter.handle(m, at: now) {
+            log.info(.midi, "midi.control", "MIDI control: \(action.title) (\(m))",
+                     ["action": .string(action.rawValue), "message": .string(m.description)])
+            switch action {
+            case .toggleArm: setArmed(!settings.armed, source: "midi")
+            case .arm: setArmed(true, source: "midi")
+            case .disarm: setArmed(false, source: "midi")
+            case .fireNext: fireNext(source: "midi")
+            case .panic: panic(source: "midi")
+            }
+        }
+    }
+
+    private func finishLearn(_ t: MIDITrigger) {
+        guard let target = learning else { return }
+        learnTimer?.invalidate()
+        learning = nil
+        switch target {
+        case .action(let action):
+            updateSettings { s in
+                // One control drives one action: take it away from any other action.
+                for (k, v) in s.controlMappings where k != action.rawValue && v.kind == t.kind && v.channel == t.channel && v.number == t.number {
+                    s.controlMappings[k] = nil
+                }
+                s.controlMappings[action.rawValue] = t
+            }
+            interpreter.mappings = settings.mappings
+            log.info(.midi, "midi.learned", "Learned \(action.title): \(t)", ["action": .string(action.rawValue), "control": .string(t.description)])
+        case .feedback:
+            updateSettings { $0.feedbackTrigger = t }
+            log.info(.midi, "midi.learned", "Learned LED feedback: \(t)", ["action": "feedback", "control": .string(t.description)])
+            sendFeedback(armed: settings.armed)
+        }
+    }
+
+    private func sendFeedback(armed: Bool) {
+        guard let t = settings.feedbackTrigger, let mc = midiController, mc.connectedOutput != nil else { return }
+        let m = MIDIMessages.feedback(t, armed: armed)
+        let ok = mc.sendFeedback(m)
+        log.debug(.midi, "midi.out", "MIDI out (LED feedback): \(m)", ["bytes": .string(m.hex), "ok": .bool(ok),
+                                                                           "device": .string(settings.feedbackDestinationName ?? "")])
     }
 
     func addCue() {

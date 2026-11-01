@@ -18,15 +18,30 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var armed = false
     /// Keeps the "TC Trigger" MIDI source's identity stable across launches.
     public var midiSourceUniqueID: Int32?
+    /// MIDI controller input for Arm/Disarm etc. (CoreMIDI unique ID + name to find it again).
+    public var controlInputID: Int32?
+    public var controlInputName: String?
+    /// Learned controls, keyed by ControlAction raw value.
+    public var controlMappings: [String: MIDITrigger] = [:]
+    /// Where armed-state LED feedback goes, and which note/CC lights the LED.
+    public var feedbackDestinationID: Int32?
+    public var feedbackDestinationName: String?
+    public var feedbackTrigger: MIDITrigger?
 
     public static let offsetRange = -500...500
     public static let catchWindowRange = 0...10
 
     public init() {}
 
+    public var mappings: [ControlAction: MIDITrigger] {
+        Dictionary(uniqueKeysWithValues: controlMappings.compactMap { k, v in ControlAction(rawValue: k).map { ($0, v) } })
+    }
+
     enum CodingKeys: String, CodingKey {
         case campusName, audioDeviceUID, audioDeviceName, audioChannel
         case offsetMs, catchWindowFrames, armed, midiSourceUniqueID
+        case controlInputID, controlInputName, controlMappings
+        case feedbackDestinationID, feedbackDestinationName, feedbackTrigger
     }
 
     public init(from decoder: Decoder) throws {
@@ -42,6 +57,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
             .clamped(to: Self.catchWindowRange)
         armed = try c.decodeIfPresent(Bool.self, forKey: .armed) ?? d.armed
         midiSourceUniqueID = try c.decodeIfPresent(Int32.self, forKey: .midiSourceUniqueID)
+        controlInputID = try c.decodeIfPresent(Int32.self, forKey: .controlInputID)
+        controlInputName = try c.decodeIfPresent(String.self, forKey: .controlInputName)
+        controlMappings = (try? c.decodeIfPresent([String: MIDITrigger].self, forKey: .controlMappings)) ?? [:]
+        feedbackDestinationID = try c.decodeIfPresent(Int32.self, forKey: .feedbackDestinationID)
+        feedbackDestinationName = try c.decodeIfPresent(String.self, forKey: .feedbackDestinationName)
+        feedbackTrigger = try? c.decodeIfPresent(MIDITrigger.self, forKey: .feedbackTrigger)
     }
 }
 
@@ -108,11 +129,23 @@ public final class SettingsStore {
     }
 
     /// Field-by-field differences, using the JSON form so new fields are covered automatically.
+    /// Nested values (e.g. MIDI mappings) are compared and logged as compact JSON text.
     static func diff(_ a: AppSettings, _ b: AppSettings) -> [(String, LogValue, LogValue)] {
         func dict(_ s: AppSettings) -> [String: LogValue] {
-            guard let data = try? JSONEncoder().encode(s),
-                  let d = try? JSONDecoder().decode([String: LogValue].self, from: data) else { return [:] }
-            return d
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.sortedKeys]
+            guard let data = try? enc.encode(s),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+            return obj.mapValues { v in
+                if let n = v as? NSNumber {
+                    if CFGetTypeID(n) == CFBooleanGetTypeID() { return .bool(n.boolValue) }
+                    return n.doubleValue == n.doubleValue.rounded() ? .int(n.intValue) : .double(n.doubleValue)
+                }
+                if let str = v as? String { return .string(str) }
+                if v is NSNull { return .null }
+                let d = try? JSONSerialization.data(withJSONObject: v, options: [.sortedKeys])
+                return .string(d.flatMap { String(data: $0, encoding: .utf8) } ?? "?")
+            }
         }
         let da = dict(a), db = dict(b)
         return Set(da.keys).union(db.keys).sorted().compactMap { key in

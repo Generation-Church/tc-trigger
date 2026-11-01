@@ -41,6 +41,8 @@ public struct EngineSnapshot: Equatable, Sendable {
     public var lastFire: FireReport?
     /// Bumped on every fire, so the UI can flash.
     public var fireCount = 0
+    /// The cue Fire Next counts from.
+    public var lastFireCueIDForNext: UUID?
 
     public init() {}
 }
@@ -118,6 +120,36 @@ public final class LTCEngine: @unchecked Sendable {
                 self.log.info(.cue, armed ? "app.armed" : "app.disarmed", armed ? "Armed" : "Disarmed",
                               ["source": .string(source)])
             }
+        }
+    }
+
+    /// Fire the next enabled cue after the last one fired (or the first), regardless of timecode
+    /// and armed state. `source` is "ui" or "midi".
+    public func fireNext(source: String) {
+        queue.async {
+            guard let cue = nextCueToFire(after: self.lastFiredCueID, in: self.allCues) else {
+                self.log.warning(.cue, "manual.fire_next_none", "Fire Next Cue: there is no next enabled cue",
+                                 ["source": .string(source)])
+                return
+            }
+            self.log.info(.cue, "manual.fire_next", "Fire Next Cue (\(source)): \(cue.name)",
+                          cue.logFields.merging(["source": .string(source), "armed": .bool(self.snap.armed)]) { a, _ in a })
+            self.core.cues.markFired(cue.id)
+            self.lastFiredCueID = cue.id
+            self.scheduler.manualFire(cue)
+        }
+    }
+
+    /// Note-offs for every cue note, All Notes Off on all channels, and cancel pending fires.
+    public func panic(source: String) {
+        queue.async {
+            let cancelled = self.scheduler.pendingCount
+            self.scheduler.cancelAll()
+            _ = self.core.cues.cancelPending(reason: "Panic")
+            let messages = MIDIMessages.panic(cues: self.allCues)
+            self.scheduler.sendNow(messages.map { ($0.status, $0.data1, $0.data2) })
+            self.log.warning(.midi, "manual.panic", "PANIC (\(source)): sent \(messages.count) note-off messages, cancelled \(cancelled) pending cue\(cancelled == 1 ? "" : "s")",
+                             ["source": .string(source), "messages": .int(messages.count), "cancelled": .int(cancelled)])
         }
     }
 
@@ -334,6 +366,7 @@ public final class LTCEngine: @unchecked Sendable {
         if r.kind != .test {
             core.cues.markFired(r.cue.id)
             lastFiredCueID = r.cue.id
+            snap.lastFireCueIDForNext = r.cue.id
         }
         snap.lastFire = r
         snap.fireCount += 1
@@ -354,6 +387,8 @@ public final class LTCEngine: @unchecked Sendable {
         switch r.kind {
         case .fired:
             log.info(.cue, "cue.fired", "FIRED \(r.cue.name) at \(r.cue.timecode) (\(how), sent \(String(format: "%+.0f", errorUs)) µs from schedule)", fields)
+        case .manual:
+            log.info(.cue, "cue.fired_manual", "FIRED \(r.cue.name) manually (Fire Next Cue)", fields)
         case .wouldHaveFired:
             log.info(.cue, "cue.would_fire", "Would have fired \(r.cue.name) at \(r.cue.timecode) (\(how)) — disarmed", fields)
         case .test:

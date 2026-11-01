@@ -114,7 +114,9 @@ For each enabled cue at frame C with catch window N (default 3):
    table, Arm toggle, offset and catch-window settings. ✓
 3. **M3** Cue list UI (duplicate, delete with confirmation, context menu, warnings, next-cue
    marker), import/export JSON with per-cue error messages and logging. ✓
-4. **M4** Armed state, Fire Next, Panic, MIDI Learn, LED feedback, menu-bar states.
+4. **M4** Armed state, Fire Next, Panic, MIDI Learn, LED feedback, menu-bar states. ✓
+   Fire Next sends regardless of armed state (deliberate operator action, like Test Fire) and
+   counts as that cue's fire for the pass. Panic also cancels pending scheduled fires.
 5. **M5** Full logging: verbose, viewer, Mark, export, retention.
 6. **M6** Reliability (App Nap, sleep, launch at login, stable signing), README install steps,
    loopback offset procedure.

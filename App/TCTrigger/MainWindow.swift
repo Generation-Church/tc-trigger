@@ -113,6 +113,8 @@ struct SettingsTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            MIDIControlSection()
+
             Section("Files") {
                 LabeledContent("Logs") {
                     Button("Show in Finder") { NSWorkspace.shared.open(model.log.directory) }
