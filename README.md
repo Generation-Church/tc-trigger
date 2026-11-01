@@ -4,8 +4,9 @@ A small macOS menu-bar app that listens to LTC (SMPTE linear timecode) on an aud
 launches Ableton Live scenes over MIDI when it hears specific frames. It's built for Generation
 Church's satellite campuses, where the LTC arrives over Resi alongside the streamed singer.
 
-**Status:** Milestone 1 of 6. It hears, decodes, locks to and displays timecode, with logging.
-Cues and MIDI arrive in M2. See [docs/DESIGN.md](docs/DESIGN.md) for how it works.
+**Status:** Milestone 2 of 6. It locks to LTC, fires cues as scheduled MIDI notes through its
+own virtual MIDI source "TC Trigger", and logs every fire, near-miss and miss. See
+[docs/DESIGN.md](docs/DESIGN.md) for how it works.
 
 Requirements: Apple Silicon Mac, macOS 14 or later. Building needs Xcode and XcodeGen
 (`brew install xcodegen`).
@@ -26,6 +27,19 @@ The app lives in the menu bar (a waveform icon: gray = no lock, blue = locked). 
 **Open TC Trigger…** for the main window. On first launch, macOS asks for audio input
 ("microphone") access. Click **Allow**, because that's how the app hears the LTC channel.
 
+## Set up Ableton
+
+1. Ableton → **Settings → Link, Tempo & MIDI**. In the MIDI Ports list, find **Input: TC Trigger** and
+   turn on **Remote** (Track can stay off).
+2. In TC Trigger's **Cues** tab, add a cue for each song: name, LTC timecode, MIDI note, channel.
+3. In Ableton, enter MIDI Map mode (⌘M), click the song's scene launch button, then click
+   **Test Fire** on that cue in TC Trigger. The note is now mapped. Leave MIDI Map mode.
+4. Set each song scene's launch quantization to **None**, or set Global Quantization to None.
+   Otherwise Ableton waits for the next bar.
+5. Click **Arm** in TC Trigger (the menu-bar icon turns green).
+
+When disarmed, cues never send MIDI, but the log still records "Would have fired".
+
 ## Run the tests
 
 ```bash
@@ -45,9 +59,10 @@ at **01:00:00:00**:
 |---|---|
 | `01_preroll_5s.wav` | 5 s of LTC before the cue, 25 s total |
 | `02_preroll_1s.wav` | only 1 s of pre-roll |
-| `03_glitch_at_cue.wav` | the cue frame and the next are silent (codec glitch) |
-| `04_starts_2_frames_late.wav` | LTC starts at 01:00:00:02 (inside the catch window) |
-| `05_starts_1s_late.wav` | LTC starts at 01:00:01:00 (too late — must not fire) |
+| `03_glitch_at_cue.wav` | the cue frame and the next are silent (codec glitch) — still fires on time |
+| `04_dropout_caught.wav` | LTC drops out 10 frames before the cue, returns 2 after — fires via the catch window |
+| `05_starts_1s_late_miss.wav` | LTC starts at 01:00:01:00 — must **not** fire; logs a miss |
+| `06_no_preroll_miss.wav` | LTC starts exactly on the cue — can't lock in time; must **not** fire |
 
 To make your own, use `ltcgen`:
 

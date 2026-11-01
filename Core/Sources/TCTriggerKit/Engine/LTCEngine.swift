@@ -33,17 +33,35 @@ public struct EngineSnapshot: Equatable, Sendable {
     /// LTC level measured by the decoder, dBFS.
     public var ltcLevelDb: Double?
     public var stats = LockStats()
+    public var armed = false
+    /// The next enabled cue ahead of the current position (or after the last one fired).
+    public var nextCue: Cue?
+    /// Seconds until the next cue fires (only while locked and approaching).
+    public var nextCueCountdown: Double?
+    public var lastFire: FireReport?
+    /// Bumped on every fire, so the UI can flash.
+    public var fireCount = 0
 
     public init() {}
 }
 
-/// Owns the audio input and the LTC lock tracker. All work happens on one high-priority
-/// serial queue that polls the real-time ring buffer every 2 ms.
+extension FireReport: Equatable {
+    public static func == (a: FireReport, b: FireReport) -> Bool {
+        a.cue == b.cue && a.kind == b.kind && a.sentAt == b.sentAt
+    }
+}
+
+/// Owns the audio input, the lock tracker and cue engine (TriggerCore) and the fire scheduler.
+/// All work happens on one high-priority serial queue that polls the real-time ring every 2 ms.
 public final class LTCEngine: @unchecked Sendable {
     public let queue = DispatchQueue(label: "church.generation.tctrigger.engine", qos: .userInteractive)
     private let log: EventLog
     private let input = AudioInput()
-    private let tracker: LockTracker
+    private let core: TriggerCore
+    private var tracker: LockTracker { core.tracker }
+    private let scheduler: FireScheduler
+    private var allCues: [Cue] = []
+    private var lastFiredCueID: UUID?
     private var watcher: AudioDeviceWatcher?
     private var timer: DispatchSourceTimer?
 
@@ -61,12 +79,53 @@ public final class LTCEngine: @unchecked Sendable {
     private let snapshotLock = OSAllocatedUnfairLock(initialState: EngineSnapshot())
     private var snap = EngineSnapshot()
 
-    /// Called on the engine queue for every LTC event (the cue engine hooks in here later).
-    public var onLTCEvent: ((LTCEvent) -> Void)?
-
-    public init(log: EventLog, lockConfig: LockTracker.Config = .init()) {
+    public init(log: EventLog, midi: MIDISink?, lockConfig: LockTracker.Config = .init()) {
         self.log = log
-        self.tracker = LockTracker(config: lockConfig)
+        self.core = TriggerCore(lockConfig: lockConfig)
+        self.scheduler = FireScheduler(sink: midi)
+        scheduler.onReport = { [weak self] report in
+            guard let self else { return }
+            self.queue.async { self.handleReport(report) }
+        }
+    }
+
+    // MARK: Cues, timing and arming
+
+    public func setCues(_ cues: [Cue]) {
+        queue.async {
+            self.allCues = cues
+            self.perform(self.core.cues.setCues(cues))
+        }
+    }
+
+    public func setTiming(offsetMs: Int, catchWindowFrames: Int) {
+        queue.async {
+            var c = self.core.cues.config
+            c.offset = Double(offsetMs) / 1000
+            c.catchWindow = catchWindowFrames
+            self.core.cues.setConfig(c)
+        }
+    }
+
+    /// Arm or disarm. `source` is recorded in the log ("ui", "midi", "app launch").
+    public func setArmed(_ armed: Bool, source: String) {
+        queue.async {
+            let was = self.scheduler.armed
+            self.scheduler.armed = armed
+            self.snap.armed = armed
+            self.publish()
+            if was != armed || source == "app launch" {
+                self.log.info(.cue, armed ? "app.armed" : "app.disarmed", armed ? "Armed" : "Disarmed",
+                              ["source": .string(source)])
+            }
+        }
+    }
+
+    /// Send a cue's MIDI immediately, ignoring timecode and armed state.
+    public func testFire(_ cue: Cue) {
+        log.info(.cue, "cue.test_fire", "Test Fire: \(cue.name) (note \(cue.note) ch \(cue.channel) vel \(cue.velocity))",
+                 cue.logFields.merging(["source": "ui"]) { a, _ in a })
+        scheduler.testFire(cue)
     }
 
     public func snapshot() -> EngineSnapshot { snapshotLock.withLock { $0 } }
@@ -200,12 +259,13 @@ public final class LTCEngine: @unchecked Sendable {
     private func poll() {
         let now = HostClock.now()
         while let frame = input.popFrame() {
-            handle(tracker.ingest(frame), latest: frame)
+            handle(core.ingest(frame, now: now))
             ltcLevelSum += frame.volumeDb
             ltcLevelCount += 1
             snap.ltcLevelDb = frame.volumeDb
         }
-        handle(tracker.tick(now: now), latest: nil)
+        handle(core.tick(now: now))
+        updateNextCue(now: now)
 
         // Meter: instant attack, ~24 dB/s fall-off.
         let peak = Double(input.takePeak())
@@ -232,11 +292,104 @@ public final class LTCEngine: @unchecked Sendable {
         publish()
     }
 
-    private func handle(_ events: [LTCEvent], latest: DecodedFrame?) {
-        for e in events {
-            logEvent(e)
-            onLTCEvent?(e)
+    private func handle(_ out: TriggerCore.Output) {
+        for e in out.ltcEvents { logEvent(e) }
+        perform(out.actions)
+    }
+
+    private func perform(_ actions: [CueAction]) {
+        let now = HostClock.now()
+        for a in actions {
+            switch a {
+            case let .schedule(cue, at, cueFrameTime, via, lateFrames, isUpdate):
+                scheduler.schedule(cue, at: at, via: via, lateFrames: lateFrames, cueFrameTime: cueFrameTime)
+                let lead = HostClock.seconds(from: now, to: at)
+                let fields: LogFields = cue.logFields.merging([
+                    "via": .string(via.rawValue), "late_frames": .int(lateFrames),
+                    "fire_in_ms": .double(lead * 1000), "offset_ms": .double(core.cues.config.offset * 1000),
+                ]) { a, _ in a }
+                if isUpdate {
+                    log.debug(.cue, "cue.rescheduled", "Refined fire time for \(cue.name)", fields)
+                } else {
+                    log.debug(.cue, "cue.scheduled", "Scheduled \(cue.name) in \(String(format: "%.0f", lead * 1000)) ms (\(via.rawValue))", fields)
+                }
+            case let .cancel(cue, reason):
+                if scheduler.cancel(cue.id) {
+                    log.warning(.cue, "cue.cancelled", "Cancelled \(cue.name): \(reason)",
+                                cue.logFields.merging(["reason": .string(reason)]) { a, _ in a })
+                }
+            case let .missed(cue, reason, heard):
+                log.error(.cue, "cue.missed", "MISSED \(cue.name) at \(cue.timecode): \(reason)",
+                          cue.logFields.merging(["reason": .string(reason), "heard_tc": .string(heard.description),
+                                                 "armed": .bool(snap.armed)]) { a, _ in a })
+            case let .timingCheck(cue, predicted, actual):
+                let err = HostClock.seconds(from: predicted, to: actual)
+                log.debug(.cue, "cue.timing_check", "Cue frame arrived \(String(format: "%+.2f", err * 1000)) ms from prediction",
+                          ["cue": .string(cue.name), "prediction_error_ms": .double(err * 1000)])
+            }
         }
+    }
+
+    private func handleReport(_ r: FireReport) {
+        if r.kind != .test {
+            core.cues.markFired(r.cue.id)
+            lastFiredCueID = r.cue.id
+        }
+        snap.lastFire = r
+        snap.fireCount += 1
+        publish()
+        guard r.kind != .test else { return }
+
+        let wall = { (t: UInt64) -> String in Self.wallClock(hostTime: t) }
+        let errorUs = HostClock.seconds(from: r.target, to: r.sentAt) * 1_000_000
+        var fields: LogFields = r.cue.logFields.merging([
+            "via": .string(r.via?.rawValue ?? "manual"), "late_frames": .int(r.lateFrames),
+            "scheduled_time": .string(wall(r.target)), "sent_time": .string(wall(r.sentAt)),
+            "send_error_us": .double(errorUs),
+            "lead_ms": .double(HostClock.seconds(from: r.scheduledAt, to: r.target) * 1000),
+            "offset_ms": .double(core.cues.config.offset * 1000),
+        ]) { a, _ in a }
+        if let f = r.cueFrameTime { fields["cue_frame_time"] = .string(wall(f)) }
+        let how = r.via == .catchWindow ? "via catch window, \(r.lateFrames) frame\(r.lateFrames == 1 ? "" : "s") late" : "exact"
+        switch r.kind {
+        case .fired:
+            log.info(.cue, "cue.fired", "FIRED \(r.cue.name) at \(r.cue.timecode) (\(how), sent \(String(format: "%+.0f", errorUs)) µs from schedule)", fields)
+        case .wouldHaveFired:
+            log.info(.cue, "cue.would_fire", "Would have fired \(r.cue.name) at \(r.cue.timecode) (\(how)) — disarmed", fields)
+        case .test:
+            break
+        }
+    }
+
+    /// Converts a host time to local wall-clock text with microseconds.
+    static func wallClock(hostTime: UInt64) -> String {
+        let date = Date().addingTimeInterval(HostClock.seconds(from: HostClock.now(), to: hostTime))
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm:ss.SSSSSS"
+        return f.string(from: date)
+    }
+
+    private func updateNextCue(now: UInt64) {
+        let enabled = allCues.filter(\.enabled).sorted { $0.timecode < $1.timecode }
+        var next: Cue?
+        var countdown: Double?
+        if tracker.isLocked, let rate = tracker.rate, let index = tracker.lastLockedIndex {
+            next = enabled.first { c in
+                let ci = c.timecode.frameIndex(at: rate)
+                return ci >= index - core.cues.config.catchWindow && !core.cues.isDone(c.id)
+                    || (ci >= index && core.cues.isScheduled(c.id))
+            }
+            if let n = next, let t = core.predictedFireTime(of: n) {
+                countdown = max(0, HostClock.seconds(from: now, to: t))
+            }
+        } else if let last = lastFiredCueID, let lastCue = allCues.first(where: { $0.id == last }) {
+            next = enabled.first { $0.timecode > lastCue.timecode } ?? enabled.first
+        } else {
+            next = enabled.first
+        }
+        snap.nextCue = next
+        snap.nextCueCountdown = countdown
     }
 
     private func logEvent(_ e: LTCEvent) {

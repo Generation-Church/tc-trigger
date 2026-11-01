@@ -43,7 +43,7 @@ log.addObserver { e in
     let fields = e.fields.keys.sorted().map { "\($0)=\(e.fields[$0]!)" }.joined(separator: " ")
     print("\(e.level.rawValue.uppercased()) [\(e.category.rawValue)] \(e.message)  \(fields)")
 }
-let engine = LTCEngine(log: log)
+let engine = LTCEngine(log: log, midi: nil)
 engine.configure(deviceUID: uid, deviceName: deviceName, channel: channel)
 engine.start()
 

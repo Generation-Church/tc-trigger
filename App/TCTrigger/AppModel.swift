@@ -10,13 +10,17 @@ final class AppModel: ObservableObject {
 
     let log: EventLog
     let settingsStore: SettingsStore
+    let cueStore: CueStore
     let engine: LTCEngine
+    private let midiSource: VirtualMIDISource?
 
     @Published private(set) var settings: AppSettings
     @Published private(set) var snapshot = EngineSnapshot()
     @Published private(set) var devices: [AudioInputDevice] = []
     @Published private(set) var micPermission: AVAuthorizationStatus
     @Published private(set) var recentLog: [LogEntry] = []
+    @Published private(set) var cues: [Cue] = []
+    @Published private(set) var midiStatus: String
 
     private var uiTimer: Timer?
     private var deviceTimer: Timer?
@@ -27,19 +31,46 @@ final class AppModel: ObservableObject {
         let initial = settingsStore.settings
         settings = initial
         log.campus = initial.campusName
-        engine = LTCEngine(log: log)
+        cueStore = CueStore(log: log)
         micPermission = AVCaptureDevice.authorizationStatus(for: .audio)
+
+        var midiError: String?
+        do {
+            midiSource = try VirtualMIDISource(name: "TC Trigger", uniqueID: initial.midiSourceUniqueID)
+        } catch {
+            midiSource = nil
+            midiError = "\(error)"
+        }
+        midiStatus = midiSource != nil ? "Virtual MIDI source “TC Trigger” is available" : "MIDI source unavailable: \(midiError ?? "")"
+        engine = LTCEngine(log: log, midi: midiSource)
 
         log.info(.app, "app.launch", "TC Trigger \(SystemInfo.appVersion) started",
                  ["app_version": .string(SystemInfo.appVersion), "macos": .string(SystemInfo.macOSVersion),
                   "mac_model": .string(SystemInfo.macModel), "host": .string(SystemInfo.hostName),
                   "campus": .string(initial.campusName), "log_dir": .string(log.directory.path)])
 
+        if let midiError {
+            log.error(.midi, "midi.source_failed", "Could not create the TC Trigger MIDI source: \(midiError)")
+        } else if let src = midiSource {
+            log.info(.midi, "midi.source_created", "Virtual MIDI source “TC Trigger” created", ["unique_id": .int(Int(src.uniqueID))])
+            if initial.midiSourceUniqueID != src.uniqueID {
+                settingsStore.update(source: "app") { $0.midiSourceUniqueID = src.uniqueID }
+            }
+        }
+
         recentLog = log.recent().reversed()
         log.addObserver { [weak self] entry in
             DispatchQueue.main.async { self?.appendLog(entry) }
         }
         settingsStore.onChange = { [weak self] s in self?.settingsChanged(s) }
+        cues = cueStore.cues
+        cueStore.onChange = { [weak self] c in
+            self?.cues = c
+            self?.engine.setCues(c)
+        }
+        engine.setCues(cues)
+        engine.setTiming(offsetMs: initial.offsetMs, catchWindowFrames: initial.catchWindowFrames)
+        engine.setArmed(initial.armed, source: "app launch")
 
         refreshDevices()
         engine.configure(deviceUID: settings.audioDeviceUID, deviceName: settings.audioDeviceName,
@@ -74,6 +105,34 @@ final class AppModel: ObservableObject {
             }
         }
     }
+
+    // MARK: Arming and cues
+
+    func setArmed(_ armed: Bool) {
+        engine.setArmed(armed, source: "ui")
+        settingsStore.update(source: "ui") { $0.armed = armed }
+    }
+
+    func addCue() {
+        let last = cues.last
+        let tc = last.map { Timecode(frameIndex: $0.timecode.frameIndex(nominal: 30, dropFrame: false) + 30 * 60, nominal: 30, dropFrame: false) }
+            ?? Timecode(1, 0, 0, 0)
+        let cue = Cue(name: "Song \(cues.count + 1)", timecode: tc, note: min(127, (last?.note ?? 59) + 1),
+                      channel: last?.channel ?? 1, velocity: last?.velocity ?? 127)
+        cueStore.update { $0.append(cue) }
+    }
+
+    func updateCue(_ cue: Cue) {
+        cueStore.update { list in
+            if let i = list.firstIndex(where: { $0.id == cue.id }) { list[i] = cue }
+        }
+    }
+
+    func deleteCue(_ id: UUID) {
+        cueStore.update { $0.removeAll { $0.id == id } }
+    }
+
+    func testFire(_ cue: Cue) { engine.testFire(cue) }
 
     func requestMicrophoneAccess() {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -119,6 +178,9 @@ final class AppModel: ObservableObject {
         log.campus = s.campusName
         if old.audioDeviceUID != s.audioDeviceUID || old.audioChannel != s.audioChannel {
             engine.configure(deviceUID: s.audioDeviceUID, deviceName: s.audioDeviceName, channel: s.audioChannel)
+        }
+        if old.offsetMs != s.offsetMs || old.catchWindowFrames != s.catchWindowFrames {
+            engine.setTiming(offsetMs: s.offsetMs, catchWindowFrames: s.catchWindowFrames)
         }
     }
 

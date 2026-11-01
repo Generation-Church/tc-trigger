@@ -90,6 +90,9 @@ struct StatusPanel: View {
             TimecodeDisplay(snapshot: s, size: compact ? 34 : 60)
                 .frame(maxWidth: .infinity, alignment: .center)
 
+            ArmButton(compact: compact)
+            NextCueLine()
+
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
                 GridRow {
                     Text("Frame rate").foregroundStyle(.secondary)
@@ -121,6 +124,80 @@ struct StatusPanel: View {
             if model.micPermission != .authorized {
                 MicPermissionBanner()
             }
+        }
+    }
+}
+
+/// Big Arm / Disarm control.
+struct ArmButton: View {
+    @EnvironmentObject var model: AppModel
+    var compact = false
+
+    var body: some View {
+        let armed = model.snapshot.armed
+        Button {
+            model.setArmed(!armed)
+        } label: {
+            HStack {
+                Image(systemName: armed ? "bolt.fill" : "bolt.slash")
+                Text(armed ? "ARMED — cues will send MIDI" : "DISARMED — cues are only logged")
+                    .fontWeight(.bold)
+                Spacer()
+                Text(armed ? "Disarm" : "Arm").font(.callout)
+            }
+            .padding(.vertical, compact ? 6 : 10)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .foregroundStyle(armed ? Color.white : Color.primary)
+            .background(armed ? Color.green : Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help(armed ? "Click to disarm" : "Click to arm")
+    }
+}
+
+/// "Next: Song 2 at 01:00:00:00 — in 4.2 s", plus the last fire.
+struct NextCueLine: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        let s = model.snapshot
+        VStack(alignment: .leading, spacing: 4) {
+            if let next = s.nextCue {
+                HStack {
+                    Text("Next").foregroundStyle(.secondary)
+                    Text(next.name).fontWeight(.semibold)
+                    Text(next.timecode.description).monospaced().foregroundStyle(.secondary)
+                    Spacer()
+                    if let t = s.nextCueCountdown, t < 600 {
+                        Text(t < 10 ? String(format: "in %.1f s", t) : String(format: "in %d:%02d", Int(t) / 60, Int(t) % 60))
+                            .monospacedDigit().fontWeight(.bold)
+                            .foregroundStyle(t < 10 ? Color.orange : Color.primary)
+                    }
+                }
+            } else {
+                Text(model.cues.isEmpty ? "No cues yet — add them in the Cues tab." : "No enabled cues.")
+                    .foregroundStyle(.secondary)
+            }
+            if let f = s.lastFire {
+                HStack {
+                    Image(systemName: f.kind == .fired ? "checkmark.circle.fill" : "circle.dashed")
+                        .foregroundStyle(f.kind == .fired ? Color.green : Color.secondary)
+                    Text(lastFireText(f)).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func lastFireText(_ f: FireReport) -> String {
+        let ago = HostClock.seconds(from: f.sentAt, to: HostClock.now())
+        let when = ago < 90 ? "\(Int(ago)) s ago" : "\(Int(ago / 60)) min ago"
+        switch f.kind {
+        case .fired:
+            let how = f.via == .catchWindow ? " (catch window, \(f.lateFrames) late)" : ""
+            return "Fired \(f.cue.name)\(how), \(when)"
+        case .wouldHaveFired: return "Would have fired \(f.cue.name) (disarmed), \(when)"
+        case .test: return "Test fired \(f.cue.name), \(when)"
         }
     }
 }

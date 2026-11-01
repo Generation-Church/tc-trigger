@@ -13,13 +13,16 @@ struct MainWindow: View {
             }
             .tabItem { Label("Status", systemImage: "waveform") }
 
+            CuesTab()
+                .tabItem { Label("Cues", systemImage: "list.number") }
+
             SettingsTab()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
 
             RecentLogTab()
                 .tabItem { Label("Log", systemImage: "list.bullet.rectangle") }
         }
-        .frame(minWidth: 560, minHeight: 440)
+        .frame(minWidth: 680, minHeight: 520)
     }
 }
 
@@ -42,13 +45,14 @@ struct MenuBarPanel: View {
             }
         }
         .padding(14)
-        .frame(width: 340)
+        .frame(width: 360)
     }
 }
 
 struct SettingsTab: View {
     @EnvironmentObject var model: AppModel
     @State private var campusDraft = ""
+    @State private var offsetDraft = 0.0
 
     var body: some View {
         Form {
@@ -79,6 +83,36 @@ struct SettingsTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            Section("Timing") {
+                LabeledContent("Offset") {
+                    HStack {
+                        Slider(value: $offsetDraft, in: Double(AppSettings.offsetRange.lowerBound)...Double(AppSettings.offsetRange.upperBound), step: 1) { editing in
+                            if !editing { commitOffset() }
+                        }
+                        Stepper("", value: Binding(get: { Int(offsetDraft) }, set: { offsetDraft = Double($0); commitOffset() }),
+                                in: AppSettings.offsetRange, step: 1)
+                            .labelsHidden()
+                        Text("\(Int(offsetDraft) > 0 ? "+" : "")\(Int(offsetDraft)) ms")
+                            .monospacedDigit().frame(width: 64, alignment: .trailing)
+                    }
+                }
+                Text("Positive fires later, negative fires earlier. Negative offsets work because TC Trigger predicts the cue frame from the LTC before it, so every LTC segment needs pre-roll before its cue: at least 2 seconds, plus the size of any negative offset.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Stepper(value: Binding(get: { model.settings.catchWindowFrames },
+                                       set: { v in model.updateSettings { $0.catchWindowFrames = v } }),
+                        in: AppSettings.catchWindowRange) {
+                    LabeledContent("Catch window", value: "\(model.settings.catchWindowFrames) frames")
+                }
+                Text("If the exact cue frame is lost (a codec glitch), still fire when LTC returns within this many frames after the cue. Later than that never fires.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("MIDI") {
+                LabeledContent("Output", value: model.midiStatus)
+                Text("In Ableton: Settings → Link, Tempo & MIDI → turn on Remote for the “TC Trigger” input, then MIDI-map each song’s scene launch to its cue’s note. Set those scenes’ launch quantization to None.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Files") {
                 LabeledContent("Logs") {
                     Button("Show in Finder") { NSWorkspace.shared.open(model.log.directory) }
@@ -86,8 +120,16 @@ struct SettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { campusDraft = model.settings.campusName }
+        .onAppear {
+            campusDraft = model.settings.campusName
+            offsetDraft = Double(model.settings.offsetMs)
+        }
         .onDisappear(perform: commitCampus)
+    }
+
+    private func commitOffset() {
+        let v = Int(offsetDraft)
+        if v != model.settings.offsetMs { model.updateSettings { $0.offsetMs = v } }
     }
 
     private var channelCount: Int { model.selectedDevice?.inputChannels ?? model.settings.audioChannel }

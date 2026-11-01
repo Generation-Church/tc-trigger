@@ -12,7 +12,7 @@ struct TCTriggerApp: App {
             MenuBarPanel()
                 .environmentObject(model)
         } label: {
-            MenuBarIcon(state: model.snapshot.lockState)
+            MenuBarIcon(state: model.snapshot.lockState, armed: model.snapshot.armed, fireCount: model.snapshot.fireCount)
         }
         .menuBarExtraStyle(.window)
 
@@ -43,25 +43,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
 
-/// Menu-bar icon: gray when idle, blue when locked to LTC.
+/// Menu-bar icon: gray = idle, blue = locked, green = armed (bolt), yellow flash on every fire.
 struct MenuBarIcon: View {
     let state: LockState
+    let armed: Bool
+    let fireCount: Int
+    @State private var flashing = false
 
     var body: some View {
-        Image(nsImage: Self.image(for: state))
+        Image(nsImage: Self.image(locked: state == .locked, armed: armed, flash: flashing))
+            .onChange(of: fireCount) { _, _ in
+                flashing = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { flashing = false }
+            }
     }
 
-    static func image(for state: LockState) -> NSImage {
-        let base = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "TC Trigger")!
-        switch state {
-        case .locked:
-            let config = NSImage.SymbolConfiguration(paletteColors: [.white, .systemBlue])
-            let img = base.withSymbolConfiguration(config) ?? base
-            img.isTemplate = false
-            return img
-        case .acquiring, .noSignal:
+    static func image(locked: Bool, armed: Bool, flash: Bool) -> NSImage {
+        let name = armed ? "bolt.circle.fill" : "waveform.circle.fill"
+        let base = NSImage(systemSymbolName: name, accessibilityDescription: "TC Trigger")!
+        let color: NSColor? = flash ? .systemYellow : armed ? .systemGreen : locked ? .systemBlue : nil
+        guard let color else {
             base.isTemplate = true
             return base
         }
+        let config = NSImage.SymbolConfiguration(paletteColors: [.white, color])
+        let img = base.withSymbolConfiguration(config) ?? base
+        img.isTemplate = false
+        return img
     }
 }

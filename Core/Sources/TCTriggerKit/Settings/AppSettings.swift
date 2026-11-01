@@ -10,11 +10,23 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var audioDeviceName: String?
     /// 1-based input channel carrying LTC.
     public var audioChannel = 1
+    /// Global firing offset in milliseconds (−500…+500). Positive = fire later.
+    public var offsetMs = 0
+    /// Fire if a frame up to this many frames after the cue is the first one heard.
+    public var catchWindowFrames = 3
+    /// Armed state, restored at launch. New installs start disarmed.
+    public var armed = false
+    /// Keeps the "TC Trigger" MIDI source's identity stable across launches.
+    public var midiSourceUniqueID: Int32?
+
+    public static let offsetRange = -500...500
+    public static let catchWindowRange = 0...10
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case campusName, audioDeviceUID, audioDeviceName, audioChannel
+        case offsetMs, catchWindowFrames, armed, midiSourceUniqueID
     }
 
     public init(from decoder: Decoder) throws {
@@ -24,7 +36,17 @@ public struct AppSettings: Codable, Equatable, Sendable {
         audioDeviceUID = try c.decodeIfPresent(String.self, forKey: .audioDeviceUID)
         audioDeviceName = try c.decodeIfPresent(String.self, forKey: .audioDeviceName)
         audioChannel = max(1, try c.decodeIfPresent(Int.self, forKey: .audioChannel) ?? d.audioChannel)
+        offsetMs = (try c.decodeIfPresent(Int.self, forKey: .offsetMs) ?? d.offsetMs)
+            .clamped(to: Self.offsetRange)
+        catchWindowFrames = (try c.decodeIfPresent(Int.self, forKey: .catchWindowFrames) ?? d.catchWindowFrames)
+            .clamped(to: Self.catchWindowRange)
+        armed = try c.decodeIfPresent(Bool.self, forKey: .armed) ?? d.armed
+        midiSourceUniqueID = try c.decodeIfPresent(Int32.self, forKey: .midiSourceUniqueID)
     }
+}
+
+extension Comparable {
+    func clamped(to r: ClosedRange<Self>) -> Self { min(max(self, r.lowerBound), r.upperBound) }
 }
 
 /// Loads and saves AppSettings as JSON and logs every change as old → new.

@@ -77,8 +77,14 @@ For each enabled cue at frame C with catch window N (default 3):
   immediately; logged as "catch window, k frames late".
 - **Miss:** LTC first heard past C+N (within 30 s of the cue), or passed C without lock → no MIDI,
   log a miss with the reason.
-- Fires once per pass; re-arms after ~1 s without LTC or when timecode is outside [C, C+N].
+- Fires once per pass. Re-arms after ~1 s without LTC, when timecode moves past C+N, or when it
+  goes back before where it was when the cue fired. (Frames before C are still decoded just after
+  an on-time fire, so "timecode < C" alone must not re-arm; a unit test covers this.)
   Firing requires *entering* the window, so re-arming while past it can't cause a late fire.
+- A pending schedule is withdrawn if no LTC frame has arrived for 3 frame periods + 30 ms before
+  its fire time ("LTC stopped just before the fire time"). A 1–2 frame glitch at the cue still fires.
+- LTC that *starts* after the cue can never be caught: lock alone takes 5 frames. The catch window
+  covers dropouts in LTC that was already running.
 - Disarmed: same logic, logs "would have fired". Lost LTC never sends anything.
 - LTC segments need pre-roll of at least 2 s before each cue (lock + up to 500 ms negative offset).
 
@@ -103,8 +109,9 @@ For each enabled cue at frame C with catch window N (default 3):
 ## Milestones
 
 1. **M1** Audio input, libltc decode, lock, rate detection, timecode display, logging foundation,
-   settings, `ltcgen` + `ltcmon`, unit tests. ← done
-2. **M2** Cue engine, scheduled MIDI via virtual source, firing-logic unit tests.
+   settings, `ltcgen` + `ltcmon`, unit tests. ✓
+2. **M2** Cue engine, scheduled MIDI via virtual source, firing-logic unit tests, basic cue
+   table, Arm toggle, offset and catch-window settings. ✓
 3. **M3** Cue list UI, import/export JSON.
 4. **M4** Armed state, Fire Next, Panic, MIDI Learn, LED feedback, menu-bar states.
 5. **M5** Full logging: verbose, viewer, Mark, export, retention.
