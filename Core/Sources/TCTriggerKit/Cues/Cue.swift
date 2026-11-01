@@ -70,6 +70,7 @@ public struct Cue: Codable, Identifiable, Equatable, Hashable, Sendable {
 public final class CueStore {
     public let fileURL: URL
     private let log: EventLog?
+    var logger: EventLog? { log }
     public private(set) var cues: [Cue]
     public var onChange: (([Cue]) -> Void)?
 

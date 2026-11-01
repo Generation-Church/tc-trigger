@@ -132,6 +132,29 @@ final class AppModel: ObservableObject {
         cueStore.update { $0.removeAll { $0.id == id } }
     }
 
+    func duplicateCue(_ id: UUID) {
+        guard let original = cues.first(where: { $0.id == id }) else { return }
+        var copy = original
+        copy.id = UUID()
+        copy.name = original.name + " (copy)"
+        copy.enabled = false // a copy at the same timecode would double-fire until edited
+        cueStore.update { $0.append(copy) }
+    }
+
+    func setEnabled(_ enabled: Bool, for id: UUID) {
+        guard var cue = cues.first(where: { $0.id == id }) else { return }
+        cue.enabled = enabled
+        updateCue(cue)
+    }
+
+    func importCues(from url: URL) throws {
+        try cueStore.importFile(url)
+    }
+
+    func exportCues(to url: URL) throws {
+        try cueStore.exportFile(url)
+    }
+
     func testFire(_ cue: Cue) { engine.testFire(cue) }
 
     func requestMicrophoneAccess() {

@@ -4,7 +4,7 @@ A small macOS menu-bar app that listens to LTC (SMPTE linear timecode) on an aud
 launches Ableton Live scenes over MIDI when it hears specific frames. It's built for Generation
 Church's satellite campuses, where the LTC arrives over Resi alongside the streamed singer.
 
-**Status:** Milestone 2 of 6. It locks to LTC, fires cues as scheduled MIDI notes through its
+**Status:** Milestone 3 of 6. It locks to LTC, fires cues as scheduled MIDI notes through its
 own virtual MIDI source "TC Trigger", and logs every fire, near-miss and miss. See
 [docs/DESIGN.md](docs/DESIGN.md) for how it works.
 
@@ -39,6 +39,19 @@ The app lives in the menu bar (a waveform icon: gray = no lock, blue = locked). 
 5. Click **Arm** in TC Trigger (the menu-bar icon turns green).
 
 When disarmed, cues never send MIDI, but the log still records "Would have fired".
+
+## Share a cue list between campuses
+
+In the **Cues** tab, click **Export…** to save the list as a `.json` file. At another campus, click
+**Import…** and choose that file. Importing *replaces* the whole list (TC Trigger asks first), and
+the log records what was imported. A file with a mistake in it is rejected, with a message naming
+the cue that's wrong, and the current list stays as it was.
+
+Cue warnings (⚠️ in the list, hover for details) flag:
+- two enabled cues on the same timecode
+- two cues sending the same note and channel
+- a timecode that can't exist at the detected frame rate
+- a cue with no name
 
 ## Run the tests
 

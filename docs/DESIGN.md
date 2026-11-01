@@ -112,7 +112,8 @@ For each enabled cue at frame C with catch window N (default 3):
    settings, `ltcgen` + `ltcmon`, unit tests. ✓
 2. **M2** Cue engine, scheduled MIDI via virtual source, firing-logic unit tests, basic cue
    table, Arm toggle, offset and catch-window settings. ✓
-3. **M3** Cue list UI, import/export JSON.
+3. **M3** Cue list UI (duplicate, delete with confirmation, context menu, warnings, next-cue
+   marker), import/export JSON with per-cue error messages and logging. ✓
 4. **M4** Armed state, Fire Next, Panic, MIDI Learn, LED feedback, menu-bar states.
 5. **M5** Full logging: verbose, viewer, Mark, export, retention.
 6. **M6** Reliability (App Nap, sleep, launch at login, stable signing), README install steps,
