@@ -104,14 +104,28 @@ struct SettingsTab: View {
             Section("Timing") {
                 LabeledContent("Offset") {
                     HStack {
-                        Slider(value: $offsetDraft, in: Double(AppSettings.offsetRange.lowerBound)...Double(AppSettings.offsetRange.upperBound), step: 1) { editing in
+                        // No `step:` here: on macOS that draws a tick mark per step (2001 of them),
+                        // which shows up as a solid line under the slider. Values are rounded instead.
+                        Slider(value: Binding(get: { offsetDraft }, set: { offsetDraft = $0.rounded() }),
+                               in: Double(AppSettings.offsetRange.lowerBound)...Double(AppSettings.offsetRange.upperBound)) { editing in
                             if !editing { commitOffset() }
                         }
                         Stepper("", value: Binding(get: { Int(offsetDraft) }, set: { offsetDraft = Double($0); commitOffset() }),
                                 in: AppSettings.offsetRange, step: 1)
                             .labelsHidden()
-                        Text("\(Int(offsetDraft) > 0 ? "+" : "")\(Int(offsetDraft)) ms")
-                            .monospacedDigit().frame(width: 64, alignment: .trailing)
+                        CommitTextField(text: "\(Int(offsetDraft))", monospaced: true) { typed in
+                            let digits = typed.lowercased().replacingOccurrences(of: "ms", with: "")
+                                .replacingOccurrences(of: "+", with: "").replacingOccurrences(of: "−", with: "-")
+                                .trimmingCharacters(in: .whitespaces)
+                            guard let v = Int(digits), AppSettings.offsetRange.contains(v) else { return false }
+                            offsetDraft = Double(v)
+                            commitOffset()
+                            return true
+                        }
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 60)
+                        .help("Type a value from −1000 to 1000")
+                        Text("ms").foregroundStyle(.secondary)
                     }
                 }
                 Text("Positive fires later, negative fires earlier. Negative offsets work because TC Trigger predicts the cue frame from the LTC before it, so every LTC segment needs pre-roll before its cue: at least 2 seconds, plus the size of any negative offset.")
