@@ -32,13 +32,119 @@ struct MIDIControlSection: View {
                     Text("\(model.settings.feedbackDestinationName ?? "Output") — not connected").tag(Int32?.some(id))
                 }
             }
-            LearnRow(title: "Armed LED", target: .feedback, trigger: model.settings.feedbackTrigger)
+            Picker("LED message", selection: Binding(
+                get: { model.settings.feedbackCustom != nil },
+                set: { custom in model.setCustomFeedback(custom ? defaultCustom : nil) })) {
+                Text("Echo the learned button (127 armed / 0 disarmed)").tag(false)
+                Text("Custom messages").tag(true)
+            }
+            if let custom = model.settings.feedbackCustom {
+                FeedbackMessageRow(title: "When armed", message: custom.armed) { m in
+                    var c = custom; c.armed = m; model.setCustomFeedback(c)
+                }
+                FeedbackMessageRow(title: "When disarmed", message: custom.disarmed) { m in
+                    var c = custom; c.disarmed = m; model.setCustomFeedback(c)
+                }
+                MorningstarFillRow()
+                Text("Use custom messages when the controller expects something other than its button's own note or CC, e.g. a Morningstar switch's toggle state, or a colour value on a Launchpad or APC (green when armed, red when disarmed).")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                LearnRow(title: "Armed LED", target: .feedback, trigger: model.settings.feedbackTrigger)
+                Text("Sends the learned note or CC: 127 when armed, 0 when disarmed.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             HStack {
-                Text("Sends 127 when armed and 0 when disarmed, using the learned note or CC.")
+                Text("Sent when the armed state changes, at launch, and when the controller reconnects.")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Send Now", action: model.sendFeedbackTest)
-                    .disabled(model.settings.feedbackTrigger == nil || !model.feedbackConnected)
+                    .disabled(!model.hasFeedbackMessage || !model.feedbackConnected)
+            }
+        }
+    }
+
+    /// Starting point when switching to custom: the learned button's message, else CC 1.
+    private var defaultCustom: CustomFeedback {
+        let t = model.settings.feedbackTrigger
+        let kind: FeedbackMessage.Kind = t?.kind == .note ? .note : .cc
+        let ch = t?.channel ?? 1, num = t?.number ?? 1
+        return CustomFeedback(armed: FeedbackMessage(kind: kind, channel: ch, number: num, value: 127),
+                              disarmed: FeedbackMessage(kind: kind, channel: ch, number: num, value: 0))
+    }
+}
+
+/// One custom LED message: type (or nothing), channel, number, value.
+struct FeedbackMessageRow: View {
+    let title: String
+    let message: FeedbackMessage?
+    let set: (FeedbackMessage?) -> Void
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack(spacing: 6) {
+                Picker("", selection: Binding<FeedbackMessage.Kind?>(
+                    get: { message?.kind },
+                    set: { kind in
+                        guard let kind else { set(nil); return }
+                        let m = message ?? FeedbackMessage(kind: kind, channel: 1, number: 0, value: 127)
+                        set(FeedbackMessage(kind: kind, channel: m.channel, number: m.number, value: m.value))
+                    })) {
+                    Text("Nothing").tag(FeedbackMessage.Kind?.none)
+                    ForEach(FeedbackMessage.Kind.allCases, id: \.self) { k in Text(k.title).tag(Optional(k)) }
+                }
+                .labelsHidden()
+                .frame(width: 150)
+                if let m = message {
+                    Text("Ch").foregroundStyle(.secondary)
+                    IntField(value: m.channel, range: 1...16) { v in
+                        set(FeedbackMessage(kind: m.kind, channel: v, number: m.number, value: m.value))
+                    }
+                    .frame(width: 36)
+                    Text(m.kind == .note ? "Note" : m.kind == .cc ? "CC" : "Program").foregroundStyle(.secondary)
+                    IntField(value: m.number, range: 0...127) { v in
+                        set(FeedbackMessage(kind: m.kind, channel: m.channel, number: v, value: m.value))
+                    }
+                    .frame(width: 40)
+                    if m.kind != .programChange {
+                        Text(m.kind == .note ? "Velocity" : "Value").foregroundStyle(.secondary)
+                        IntField(value: m.value, range: 0...127) { v in
+                            set(FeedbackMessage(kind: m.kind, channel: m.channel, number: m.number, value: v))
+                        }
+                        .frame(width: 40)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Fills both custom messages for a Morningstar MC6 / MC8 / MC10 switch (CC 2 / CC 3).
+struct MorningstarFillRow: View {
+    @EnvironmentObject var model: AppModel
+    @State private var switchIndex = 0
+    @State private var channel = 1
+
+    var body: some View {
+        LabeledContent("Morningstar MC6/MC8/MC10") {
+            HStack(spacing: 6) {
+                Text("Switch").foregroundStyle(.secondary)
+                Picker("", selection: $switchIndex) {
+                    ForEach(Array(CustomFeedback.morningstarSwitches.enumerated()), id: \.offset) { i, letter in
+                        Text(letter).tag(i)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 60)
+                Text("on its channel").foregroundStyle(.secondary)
+                Picker("", selection: $channel) {
+                    ForEach(1...16, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 60)
+                Button("Fill In") {
+                    model.setCustomFeedback(.morningstar(switchIndex: switchIndex, channel: channel))
+                }
+                .help("Armed → CC 2 (Engage Toggle), disarmed → CC 3 (Disengage Toggle), value = switch")
             }
         }
     }

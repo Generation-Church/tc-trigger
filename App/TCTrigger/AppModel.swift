@@ -195,6 +195,15 @@ final class AppModel: ObservableObject {
 
     func sendFeedbackTest() { sendFeedback(armed: settings.armed) }
 
+    /// Use hand-set LED messages (nil = go back to echoing the learned button).
+    func setCustomFeedback(_ custom: CustomFeedback?) {
+        updateSettings { $0.feedbackCustom = custom }
+        sendFeedback(armed: settings.armed)
+    }
+
+    /// Something to send for the LED (learned button or custom messages).
+    var hasFeedbackMessage: Bool { settings.feedbackCustom != nil || settings.feedbackTrigger != nil }
+
     // MARK: Reliability and calibration
 
     func setLaunchAtLogin(_ on: Bool) {
@@ -355,8 +364,9 @@ final class AppModel: ObservableObject {
     }
 
     private func sendFeedback(armed: Bool) {
-        guard let t = settings.feedbackTrigger, let mc = midiController, mc.connectedOutput != nil else { return }
-        let m = MIDIMessages.feedback(t, armed: armed)
+        guard let mc = midiController, mc.connectedOutput != nil,
+              let m = MIDIMessages.feedback(learned: settings.feedbackTrigger, custom: settings.feedbackCustom,
+                                            armed: armed) else { return }
         let ok = mc.sendFeedback(m)
         log.debug(.midi, "midi.out", "MIDI out (LED feedback): \(m)", ["bytes": .string(m.hex), "ok": .bool(ok),
                                                                            "device": .string(settings.feedbackDestinationName ?? "")])

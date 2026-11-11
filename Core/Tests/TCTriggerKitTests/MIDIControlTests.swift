@@ -181,3 +181,38 @@ struct VirtualSourceTests {
         #expect(got.count == msgs.count, "received \(got.map { String(format: "%08X", $0) })")
     }
 }
+
+struct CustomFeedbackTests {
+    @Test func morningstarUsesEngageAndDisengageToggleOnItsChannel() {
+        // Switch C (index 2) on an MC8 Pro listening on channel 5.
+        let f = CustomFeedback.morningstar(switchIndex: 2, channel: 5)
+        #expect(MIDIMessages.feedback(learned: nil, custom: f, armed: true) == MIDIMessage(0xB4, 2, 2))
+        #expect(MIDIMessages.feedback(learned: nil, custom: f, armed: false) == MIDIMessage(0xB4, 3, 2))
+        #expect(CustomFeedback.morningstarSwitches.prefix(3) == ["A", "B", "C"])
+        #expect(CustomFeedback.morningstarSwitches.last == "X")
+    }
+
+    @Test func customOverridesLearnedAndCanSendNothing() {
+        let learned = MIDITrigger(kind: .note, channel: 1, number: 36, style: .momentary)
+        let custom = CustomFeedback(armed: FeedbackMessage(kind: .note, channel: 1, number: 36, value: 21), disarmed: nil)
+        #expect(MIDIMessages.feedback(learned: learned, custom: custom, armed: true) == MIDIMessage(0x90, 36, 21))
+        #expect(MIDIMessages.feedback(learned: learned, custom: custom, armed: false) == nil)
+        #expect(MIDIMessages.feedback(learned: learned, custom: nil, armed: false) == MIDIMessage(0x90, 36, 0))
+        #expect(MIDIMessages.feedback(learned: nil, custom: nil, armed: true) == nil)
+    }
+
+    @Test func messageKindsAndClamping() {
+        #expect(FeedbackMessage(kind: .programChange, channel: 16, number: 7, value: 99).message == MIDIMessage(0xCF, 7, 0))
+        let clamped = FeedbackMessage(kind: .cc, channel: 0, number: 200, value: -4)
+        #expect(clamped.channel == 1 && clamped.number == 127 && clamped.value == 0)
+    }
+
+    @Test func savedAndReloadedWithSettings() throws {
+        var s = AppSettings()
+        s.feedbackCustom = .morningstar(switchIndex: 7, channel: 1)
+        let back = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(s))
+        #expect(back.feedbackCustom == s.feedbackCustom)
+        let old = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"campusName":"X"}"#.utf8))
+        #expect(old.feedbackCustom == nil)
+    }
+}

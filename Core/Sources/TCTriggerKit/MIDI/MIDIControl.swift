@@ -175,8 +175,84 @@ public struct LearnSession {
     }
 }
 
+/// One message TC Trigger sends to show the armed state, set by hand (for controllers that
+/// expect something other than an echo of the button's own note or CC).
+public struct FeedbackMessage: Codable, Equatable, Hashable, Sendable {
+    public enum Kind: String, Codable, CaseIterable, Sendable {
+        case note, cc, programChange
+
+        public var title: String {
+            switch self {
+            case .note: return "Note"
+            case .cc: return "CC"
+            case .programChange: return "Program Change"
+            }
+        }
+    }
+
+    public var kind: Kind
+    public var channel: Int // 1–16
+    /// Note number, CC number, or program number.
+    public var number: Int  // 0–127
+    /// Velocity (note) or value (CC). Ignored for Program Change.
+    public var value: Int   // 0–127
+
+    public init(kind: Kind, channel: Int, number: Int, value: Int) {
+        self.kind = kind
+        self.channel = min(16, max(1, channel))
+        self.number = min(127, max(0, number))
+        self.value = min(127, max(0, value))
+    }
+
+    public var message: MIDIMessage {
+        let ch = UInt8(channel - 1)
+        switch kind {
+        case .note: return MIDIMessage(0x90 | ch, UInt8(number), UInt8(value))
+        case .cc: return MIDIMessage(0xB0 | ch, UInt8(number), UInt8(value))
+        case .programChange: return MIDIMessage(0xC0 | ch, UInt8(number), 0)
+        }
+    }
+
+    public var description: String {
+        switch kind {
+        case .note: return "Note \(number) vel \(value), ch \(channel)"
+        case .cc: return "CC \(number) = \(value), ch \(channel)"
+        case .programChange: return "Program Change \(number), ch \(channel)"
+        }
+    }
+}
+
+/// Hand-set armed/disarmed messages. Either may be nil (send nothing in that state).
+public struct CustomFeedback: Codable, Equatable, Sendable {
+    public var armed: FeedbackMessage?
+    public var disarmed: FeedbackMessage?
+
+    public init(armed: FeedbackMessage?, disarmed: FeedbackMessage?) {
+        self.armed = armed
+        self.disarmed = disarmed
+    }
+
+    /// Morningstar MC6 / MC8 / MC10 (Pro): CC 2 "Engage Toggle" puts switch `index` (0 = A) into
+    /// toggle position 2 (armed); CC 3 "Disengage Toggle" puts it back to position 1 (disarmed).
+    /// Sent on the controller's own MIDI channel (MC8 Pro manual, MIDI implementation).
+    public static func morningstar(switchIndex: Int, channel: Int) -> CustomFeedback {
+        CustomFeedback(armed: FeedbackMessage(kind: .cc, channel: channel, number: 2, value: switchIndex),
+                       disarmed: FeedbackMessage(kind: .cc, channel: channel, number: 3, value: switchIndex))
+    }
+
+    /// Switch letters A–X (index 0–23) as Morningstar labels them.
+    public static let morningstarSwitches = (0..<24).map { String(UnicodeScalar(UInt8(65 + $0))) }
+}
+
 /// Messages built for output.
 public enum MIDIMessages {
+    /// What to send for the armed state: the custom message if one is set, otherwise the learned
+    /// button's own note/CC at 127 (armed) or 0 (disarmed). Nil = nothing to send.
+    public static func feedback(learned: MIDITrigger?, custom: CustomFeedback?, armed: Bool) -> MIDIMessage? {
+        if let custom { return (armed ? custom.armed : custom.disarmed)?.message }
+        return learned.map { feedback($0, armed: armed) }
+    }
+
     /// LED feedback for the armed state: full on when armed, off when disarmed.
     public static func feedback(_ t: MIDITrigger, armed: Bool) -> MIDIMessage {
         let ch = UInt8(t.channel - 1)

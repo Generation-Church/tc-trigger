@@ -147,8 +147,12 @@ In **Settings → MIDI control**, choose the controller as **Controller input**.
   any cue waiting to fire.
 
 TC Trigger works out whether each button sends a press and a release or a single message, so one
-press never counts twice. For an LED that shows the armed state, choose the controller under
-**Feedback output** and **Learn** the **Armed LED** button.
+press never counts twice.
+
+For a light that shows the armed state, choose the controller under **Feedback output**. Either
+**Learn** a button whose LED should follow, or use **Custom messages** for controllers that expect
+something else. There's a one-click setup for **Morningstar MC6/MC8/MC10** switches. Step-by-step
+setups, including the MC8 Pro, are in [docs/CONTROLLERS.md](docs/CONTROLLERS.md).
 
 ## Weekend checklist
 

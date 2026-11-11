@@ -27,6 +27,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var feedbackDestinationID: Int32?
     public var feedbackDestinationName: String?
     public var feedbackTrigger: MIDITrigger?
+    /// Hand-set feedback messages; when set, used instead of echoing `feedbackTrigger`.
+    public var feedbackCustom: CustomFeedback?
     /// Verbose logging is on until this time (it turns itself off after 24 hours).
     public var verboseUntil: Date?
     /// Also show a Dock icon (handy when the menu bar is too full to show TC Trigger's icon).
@@ -50,7 +52,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case offsetMs, catchWindowFrames, armed, midiSourceUniqueID
         case controlInputID, controlInputName, controlMappings
         case feedbackDestinationID, feedbackDestinationName, feedbackTrigger
-        case verboseUntil, showInDock
+        case verboseUntil, showInDock, feedbackCustom
     }
 
     public init(from decoder: Decoder) throws {
@@ -72,6 +74,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         feedbackDestinationID = try c.decodeIfPresent(Int32.self, forKey: .feedbackDestinationID)
         feedbackDestinationName = try c.decodeIfPresent(String.self, forKey: .feedbackDestinationName)
         feedbackTrigger = try? c.decodeIfPresent(MIDITrigger.self, forKey: .feedbackTrigger)
+        feedbackCustom = try? c.decodeIfPresent(CustomFeedback.self, forKey: .feedbackCustom)
         verboseUntil = try? c.decodeIfPresent(Date.self, forKey: .verboseUntil)
         showInDock = try c.decodeIfPresent(Bool.self, forKey: .showInDock) ?? d.showInDock
     }
