@@ -112,7 +112,7 @@ struct CueEngineTests {
         }
     }
 
-    @Test(arguments: [-400, -120, 120, 500])
+    @Test(arguments: [-1000, -400, -120, 120, 500, 1000])
     func offsetShiftsTheFireTime(offsetMs: Int) {
         let sim = Sim(cues: [Self.song], offsetMs: offsetMs)
         let start = Timecode(0, 59, 57, 0)
@@ -328,5 +328,33 @@ struct CueStoreTests {
         #expect(reloaded.cues == store.cues)
         let json = String(data: try Data(contentsOf: dir.appendingPathComponent("cues.json")), encoding: .utf8)!
         #expect(json.contains("\"timecode\" : \"01:00:00:00\""))
+    }
+}
+
+struct OffsetRangeTests {
+    @Test func settingsAcceptPlusMinus1000AndClampBeyond() throws {
+        let ok = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"offsetMs":-1000}"#.utf8))
+        #expect(ok.offsetMs == -1000)
+        let big = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"offsetMs":1500}"#.utf8))
+        #expect(big.offsetMs == 1000)
+    }
+
+    @Test func minus1000FiresOnTimeWithEnoughPreroll() {
+        // 1.5 s of pre-roll: lock (~0.2 s) comes well before the fire time (cue − 1 s).
+        let sim = Sim(cues: [CueEngineTests.song], offsetMs: -1000)
+        let start = Timecode(0, 59, 58, 12)
+        sim.play(from: start, to: Timecode(1, 0, 2, 0), startSeconds: 0)
+        #expect(sim.fires.count == 1 && sim.fires.first?.via == .exact)
+        if let f = sim.fires.first {
+            #expect(sim.error(of: f, versus: CueEngineTests.cueTC, firstIndex: start, startSeconds: 0, offsetMs: -1000) < 0.0001)
+        }
+    }
+
+    @Test func minus1000WithTooLittlePrerollIsAMissNotALateFire() {
+        // 0.88 s of pre-roll: the fire time (cue − 1 s) has already passed when lock arrives.
+        let sim = Sim(cues: [CueEngineTests.song], offsetMs: -1000)
+        sim.play(from: Timecode(0, 59, 59, 3), to: Timecode(1, 0, 2, 0), startSeconds: 0)
+        #expect(sim.fires.isEmpty)
+        #expect(sim.misses.first?.reason.contains("not enough pre-roll") == true)
     }
 }

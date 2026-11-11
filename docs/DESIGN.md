@@ -86,7 +86,8 @@ For each enabled cue at frame C with catch window N (default 3):
 - LTC that *starts* after the cue can never be caught: lock alone takes 5 frames. The catch window
   covers dropouts in LTC that was already running.
 - Disarmed: same logic, logs "would have fired". Lost LTC never sends anything.
-- LTC segments need pre-roll of at least 2 s before each cue (lock + up to 500 ms negative offset).
+- LTC segments need pre-roll of at least 2 s before each cue, plus the size of any negative offset
+  (the offset range is ±1000 ms, so up to 3 s).
 
 ## MIDI (M2/M4)
 

@@ -10,7 +10,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var audioDeviceName: String?
     /// 1-based input channel carrying LTC.
     public var audioChannel = 1
-    /// Global firing offset in milliseconds (−500…+500). Positive = fire later.
+    /// Global firing offset in milliseconds (−1000…+1000). Positive = fire later.
     public var offsetMs = 0
     /// Fire if a frame up to this many frames after the cue is the first one heard.
     public var catchWindowFrames = 3
@@ -34,7 +34,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     public static let verboseDuration: TimeInterval = 24 * 3600
 
-    public static let offsetRange = -500...500
+    public static let offsetRange = -1000...1000
     public static let catchWindowRange = 0...10
 
     public init() {}
