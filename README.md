@@ -73,7 +73,8 @@ The app lives in the menu bar (a waveform icon: gray = no lock, blue = locked). 
    - set up the MIDI controller, if you use one
 7. In **Cues**, click **Import…** and load the cue list you exported.
 8. Set up Ableton (below), then **measure the offset**:
-   [docs/LOOPBACK_TEST.md](docs/LOOPBACK_TEST.md).
+   [docs/LOOPBACK_TEST.md](docs/LOOPBACK_TEST.md). If the delay is bigger than expected, see
+   [docs/LATENCY_TESTING.md](docs/LATENCY_TESTING.md).
 
 ## Updates
 

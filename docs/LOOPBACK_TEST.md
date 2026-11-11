@@ -8,6 +8,10 @@ negative = fire earlier).
 
 TC Trigger measures this for you with a short loopback cable.
 
+If the delay you hear is much larger than expected (hundreds of ms), work through
+[LATENCY_TESTING.md](LATENCY_TESTING.md) first: it separates TC Trigger, the sending computer and
+Ableton, and makes sure the offset only covers what it should.
+
 ## What you need
 
 - A loopback from one spare **output** to one spare **input** of the same audio device: a short
