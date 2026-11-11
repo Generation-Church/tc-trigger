@@ -26,7 +26,7 @@ rm -rf "$APP"
 cp -R "build/DerivedData/Build/Products/Release/TC Trigger.app" "$APP"
 
 IDENTITY="TC Trigger Signing"
-if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
+if [[ "$(security find-identity -p codesigning)" == *"\"$IDENTITY\""* ]]; then
   echo "▸ Signing with \"$IDENTITY\" (permissions survive updates)"
   codesign --force --deep --sign "$IDENTITY" --timestamp=none "$APP"
 else

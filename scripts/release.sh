@@ -20,7 +20,7 @@ die() { echo "✗ $*" >&2; exit 1; }
 [ -n "$NOTES" ] || die "Add release notes in quotes after the version."
 [ -s config/sparkle-public-key.txt ] || die "No update key yet. Run ./scripts/setup-updates.sh first."
 if [ "$DRY" != "1" ]; then
-  security find-identity -p codesigning | grep -q '"TC Trigger Signing"' \
+  [[ "$(security find-identity -p codesigning)" == *'"TC Trigger Signing"'* ]] \
     || die "No signing certificate. Run ./scripts/make-signing-cert.sh first (updates must be signed by it)."
   [ -z "$(git status --porcelain)" ] || die "Commit or discard your changes first (git status)."
   [ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || die "Release from the main branch."

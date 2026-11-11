@@ -11,7 +11,7 @@
 set -euo pipefail
 NAME="TC Trigger Signing"
 
-if security find-identity -p codesigning | grep -q "\"$NAME\""; then
+if [[ "$(security find-identity -p codesigning)" == *"\"$NAME\""* ]]; then
   echo "✓ \"$NAME\" already exists in your keychain. Nothing to do."
   exit 0
 fi
@@ -32,7 +32,7 @@ extendedKeyUsage = critical, codeSigning
 basicConstraints = critical, CA:false
 CNF
 
-PASS=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
+PASS=$(/usr/bin/openssl rand -hex 16)
 /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 7300 -config "$TMP/cert.cnf" \
   -keyout "$TMP/key.pem" -out "$TMP/cert.pem" 2>/dev/null
 /usr/bin/openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" -name "$NAME" \
