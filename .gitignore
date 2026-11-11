@@ -8,3 +8,4 @@ Core/.swiftpm/
 *.xcuserstate
 xcuserdata/
 /dist/
+dist.project.yml.bak

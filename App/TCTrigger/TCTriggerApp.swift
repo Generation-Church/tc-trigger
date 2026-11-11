@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let model = AppModel.shared
         model.applyDockSetting()
+        _ = Updater.shared // start Sparkle (scheduled checks) at launch
         // Opened by a person → show the window. Started by macOS at login → stay in the
         // background (the Mac runs unattended), unless setup isn't finished.
         let showWindow = !Self.launchedAtLogin || model.settings.campusName.isEmpty

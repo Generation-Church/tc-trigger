@@ -9,6 +9,9 @@ options:
 packages:
   TCTriggerCore:
     path: Core
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 
 settings:
   base:
@@ -27,6 +30,7 @@ targets:
     dependencies:
       - package: TCTriggerCore
         product: TCTriggerKit
+      - package: Sparkle
     info:
       path: App/Info.plist
       properties:
@@ -40,6 +44,12 @@ targets:
         LSMinimumSystemVersion: "14.0"
         LSApplicationCategoryType: public.app-category.music
         NSMicrophoneUsageDescription: TC Trigger listens to the LTC timecode channel on your audio interface.
+        # Updates (Sparkle): latest GitHub release's appcast; key from config/sparkle-public-key.txt
+        SUFeedURL: https://github.com/Generation-Church/tc-trigger/releases/latest/download/appcast.xml
+        SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: false
+        SUScheduledCheckInterval: 86400
         NSHumanReadableCopyright: "© Generation Church. Uses libltc (LGPL-3.0)."
     settings:
       base:

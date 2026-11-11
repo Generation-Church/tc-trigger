@@ -29,6 +29,7 @@ struct MainWindow: View {
 /// Menu-bar drop-down panel.
 struct MenuBarPanel: View {
     @EnvironmentObject var model: AppModel
+    @ObservedObject private var updater = Updater.shared
     @Environment(\.openWindow) private var openWindow
 
     /// One click for a volunteer: last 7 days → Desktop → shown in Finder.
@@ -56,6 +57,10 @@ struct MenuBarPanel: View {
                     NSApp.activate(ignoringOtherApps: true)
                 }
                 Spacer()
+                if Updater.shared.isConfigured {
+                    Button("Check for Updates…") { Updater.shared.checkForUpdates() }
+                        .disabled(!updater.canCheck)
+                }
                 Button("Export Logs") { exportLogs() }
                     .help("Save the last 7 days of logs to the Desktop as a zip")
                 Button("Quit") { NSApp.terminate(nil) }
@@ -68,6 +73,7 @@ struct MenuBarPanel: View {
 
 struct SettingsTab: View {
     @EnvironmentObject var model: AppModel
+    @ObservedObject private var updater = Updater.shared
     @State private var campusDraft = ""
     @State private var offsetDraft = 0.0
     @State private var showCalibration = false
@@ -162,6 +168,27 @@ struct SettingsTab: View {
                 }
                 Text("While armed, TC Trigger keeps the Mac from going to sleep (the display can still sleep). App Nap is always off for TC Trigger.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Updates") {
+                LabeledContent("Installed version", value: SystemInfo.appVersion)
+                if updater.isConfigured {
+                    HStack {
+                        Button("Check for Updates…") { updater.checkForUpdates() }
+                            .disabled(!updater.canCheck)
+                        if let last = updater.lastCheck {
+                            Text("Last checked \(last.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle("Check for updates automatically (daily)",
+                           isOn: Binding(get: { updater.automaticallyChecks }, set: { updater.automaticallyChecks = $0 }))
+                    Text("Automatic checks never happen while armed, so an update window can't appear during a service. Updates are only installed when someone clicks Install, and TC Trigger relaunches with the same settings and armed state.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("This build wasn't made with an update key, so it can't check for updates. Install a newer version from github.com/Generation-Church/tc-trigger/releases.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             Section("Files") {

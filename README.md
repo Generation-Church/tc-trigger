@@ -45,15 +45,9 @@ The app lives in the menu bar (a waveform icon: gray = no lock, blue = locked). 
 
 ## Install on a campus Mac
 
-1. On your Mac, make the install zip:
-
-   ```bash
-   ./scripts/package.sh
-   ```
-
-   This creates `dist/TC-Trigger-<version>.zip` and shows it in Finder.
-2. Get the zip onto the campus Mac (USB stick, AirDrop, Google Drive…) and double-click it to
-   unzip.
+1. On the campus Mac, download `TC-Trigger-<version>.zip` from the
+   [latest release](https://github.com/Generation-Church/tc-trigger/releases/latest).
+2. Double-click the zip to unzip it.
 3. Drag **TC Trigger** into the **Applications** folder. If it's an update, quit TC Trigger
    first and replace the old one.
 4. **Get past Gatekeeper** (TC Trigger isn't notarized by Apple, so macOS blocks the first launch).
@@ -80,6 +74,14 @@ The app lives in the menu bar (a waveform icon: gray = no lock, blue = locked). 
 7. In **Cues**, click **Import…** and load the cue list you exported.
 8. Set up Ableton (below), then **measure the offset**:
    [docs/LOOPBACK_TEST.md](docs/LOOPBACK_TEST.md).
+
+## Updates
+
+TC Trigger checks GitHub for a new version once a day (never while armed), and whenever you click
+**Check for Updates…** (menu-bar panel, or Settings → Updates). When there is one, it shows what's
+new, and **Install Update** replaces the app and relaunches it with the same settings. Nothing
+installs without someone clicking. To publish a new version, see
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ## Set up Ableton
 
