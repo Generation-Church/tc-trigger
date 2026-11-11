@@ -53,6 +53,8 @@ final class Updater: NSObject, ObservableObject {
 }
 
 extension Updater: SPUUpdaterDelegate {
+    nonisolated static let skipDomain = "TCTrigger.UpdateSkippedWhileArmed"
+
     nonisolated func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
         guard updateCheck == .updatesInBackground else { return }
         let armed = MainActor.assumeIsolated { AppModel.shared.settings.armed }
@@ -60,7 +62,7 @@ extension Updater: SPUUpdaterDelegate {
             MainActor.assumeIsolated {
                 AppModel.shared.log.info(.app, "update.skipped", "Skipped the automatic update check because TC Trigger is armed")
             }
-            throw NSError(domain: "TCTrigger", code: 1,
+            throw NSError(domain: Self.skipDomain, code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "Automatic update checks are skipped while armed."])
         }
     }
@@ -90,6 +92,8 @@ extension Updater: SPUUpdaterDelegate {
     }
 
     nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        // Our own "skipped while armed" refusal is already logged as update.skipped.
+        if (error as NSError).domain == Self.skipDomain { return }
         let msg = error.localizedDescription
         MainActor.assumeIsolated {
             AppModel.shared.log.warning(.app, "update.failed", "Update check or install stopped: \(msg)", ["error": .string(msg)])
